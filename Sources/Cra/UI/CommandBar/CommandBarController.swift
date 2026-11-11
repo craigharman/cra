@@ -1,11 +1,11 @@
 import AppKit
-import Observation
+import Perception
 import SwiftUI
 
 /// State + behaviour of the ⌘T / ⌘L bar. The panel and SwiftUI view read
 /// from here; MainWindowController owns commits.
 @MainActor
-@Observable
+@Perceptible
 final class CommandBarController {
     var isOpen = false
     var mode: CommandBarMode = .newTab

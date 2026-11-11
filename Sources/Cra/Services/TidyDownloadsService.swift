@@ -1,6 +1,6 @@
 import AppKit
 import Foundation
-import Observation
+import Perception
 #if canImport(FoundationModels)
 import FoundationModels
 #endif
@@ -9,7 +9,7 @@ import FoundationModels
 /// download gets a readable name from its file name, the tab it came from and the site, and the
 /// file on disk is renamed. The sidebar's card above the download bin says so ("Download renamed
 /// to:", Arc's SidebarBanner) with a way back; reverting says "Download name reverted!" in Cra's toast.
-@MainActor @Observable
+@MainActor @Perceptible
 final class TidyDownloadsService {
     static let shared = TidyDownloadsService()
 
@@ -31,8 +31,8 @@ final class TidyDownloadsService {
     static let cardShown: TimeInterval = 8
 
     /// The tab a download started from: its title and address, for the prompt.
-    @ObservationIgnored private var sources: [UInt32: (title: String, url: String)] = [:]
-    @ObservationIgnored private var asked: Set<UInt32> = []
+    @PerceptionIgnored private var sources: [UInt32: (title: String, url: String)] = [:]
+    @PerceptionIgnored private var asked: Set<UInt32> = []
 
     private init() {}
 
@@ -67,8 +67,8 @@ final class TidyDownloadsService {
     }
 
     /// When the card goes by itself, and the timer that takes it.
-    @ObservationIgnored private var dismissAt = Date.distantFuture
-    @ObservationIgnored private var dismissal: Task<Void, Never>?
+    @PerceptionIgnored private var dismissAt = Date.distantFuture
+    @PerceptionIgnored private var dismissal: Task<Void, Never>?
     /// After the pointer leaves, the card stays at least this long (Victor, 5 Nov 2026: it went while
     /// he was deciding whether to revert; Arc's hover behaviour wasn't seen).
     static let afterHover: TimeInterval = 3

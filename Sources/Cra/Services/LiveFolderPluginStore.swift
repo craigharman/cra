@@ -1,9 +1,9 @@
 import AppKit
 import CraCEF
-import Observation
+import Perception
 
 @MainActor
-@Observable
+@Perceptible
 final class LiveFolderPluginStore {
     struct Entry {
         let package: LiveFolderPluginPackage
@@ -18,7 +18,7 @@ final class LiveFolderPluginStore {
     private(set) var loaded = false
     private(set) var reloading = false
     private(set) var disabled: Set<String>
-    @ObservationIgnored private let disabledFile = JSONStore<[String]>("disabled-live-folder-plugins.json")
+    @PerceptionIgnored private let disabledFile = JSONStore<[String]>("disabled-live-folder-plugins.json")
 
     private init() { disabled = Set(disabledFile.load(or: { [] })) }
 
@@ -85,8 +85,8 @@ final class LiveFolderPluginStore {
         Bundle.main.executableURL!.deletingLastPathComponent().appendingPathComponent("CraPluginHost")
     }
 
-    @ObservationIgnored private var reloadTask: Task<Void, Never>?
-    @ObservationIgnored private var reloadAgain = false
+    @PerceptionIgnored private var reloadTask: Task<Void, Never>?
+    @PerceptionIgnored private var reloadAgain = false
 
     /// Reads both plugin folders again. A call while one runs waits for a second pass that starts
     /// after it, so an install or a toggle never returns before its plugin is (or isn't) loaded.

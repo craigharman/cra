@@ -1,5 +1,5 @@
 import AppKit
-import Observation
+import Perception
 import SwiftUI
 
 // The onboarding and import flow, after Dia 1.54's Onboarding module (see
@@ -65,7 +65,7 @@ struct PinCandidate: Identifiable, Hashable {
 }
 
 @MainActor
-@Observable
+@Perceptible
 final class ImportFlowModel {
     let sources = ImportSource.allCases.filter(\.isAvailable)
     var step: ImportStep

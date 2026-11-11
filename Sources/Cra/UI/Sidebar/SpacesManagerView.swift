@@ -1,3 +1,4 @@
+import Perception
 import AppKit
 
 /// Arc 1.171's Library ▸ Spaces, which "Manage Spaces…" opens (spaceManager). Measured from a 2x
@@ -75,7 +76,7 @@ final class SpacesManagerView: NSView {
     override var isFlipped: Bool { true }
 
     private func sync() {
-        let ids = withObservationTracking { store.orderedSpaces.filter { !store.isIncognito(space: $0.id) }.map(\.id) } onChange: { [weak self] in
+        let ids = withPerceptionTracking { store.orderedSpaces.filter { !store.isIncognito(space: $0.id) }.map(\.id) } onChange: { [weak self] in
             Task { @MainActor in self?.sync() }
         }
         for id in cards.keys where !ids.contains(id) { cards.removeValue(forKey: id)?.removeFromSuperview() }
@@ -186,7 +187,7 @@ private final class SpaceManagerCard: NSView {
     override var isFlipped: Bool { true }
 
     private func sync() {
-        withObservationTracking {
+        withPerceptionTracking {
             guard let s = store.space(spaceID) else { return }
             emoji.stringValue = s.emoji
             symbol.image = s.symbol.flatMap { SidebarSymbols.image($0, size: 13, weight: .medium) }

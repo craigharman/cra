@@ -1,3 +1,4 @@
+import Perception
 import AppKit
 import SwiftUI
 import UniformTypeIdentifiers
@@ -193,7 +194,7 @@ final class SpaceListView: NSView, NSDraggingSource {
 
     private func sync() {
         syncQueued = false
-        let built = withObservationTracking { build() } onChange: { [weak self] in
+        let built = withPerceptionTracking { build() } onChange: { [weak self] in
             Task { @MainActor in self?.scheduleSync() }
         }
         if let built { apply(built) }

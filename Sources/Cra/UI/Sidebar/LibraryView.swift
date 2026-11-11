@@ -1,3 +1,4 @@
+import Perception
 import AppKit
 import SwiftUI
 import UniformTypeIdentifiers
@@ -417,7 +418,7 @@ private final class LibraryListView: NSView, NSTextFieldDelegate, NSTableViewDat
     }
 
     private func observe() {
-        withObservationTracking {
+        withPerceptionTracking {
             _ = store.archive
             _ = DownloadHistory.shared.entries
             _ = DownloadHistory.shared.live

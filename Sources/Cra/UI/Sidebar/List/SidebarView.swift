@@ -1,3 +1,4 @@
+import Perception
 import AppKit
 
 /// The whole left column in AppKit, laid out like Arc: traffic lights + sidebar toggle with the
@@ -117,7 +118,7 @@ final class SidebarView: NSView {
 
     private func observe() {
         var bannerHeight: CGFloat = 0
-        let (space, library, trayOpen, recentCount) = withObservationTracking {
+        let (space, library, trayOpen, recentCount) = withPerceptionTracking {
             let space = store.focusedSpace(window: ui.windowID)
             _ = SystemAppearance.shared.isDark
             bannerHeight = UpdateBannerView.preferredHeight
@@ -396,7 +397,7 @@ final class SidebarTopBarView: NSView {
 
     private func sync() {
         syncQueued = false
-        withObservationTracking { apply() } onChange: { [weak self] in
+        withPerceptionTracking { apply() } onChange: { [weak self] in
             Task { @MainActor in
                 guard let self, !self.syncQueued else { return }
                 self.syncQueued = true
@@ -1054,7 +1055,7 @@ final class SpaceDockView: NSView {
     private func sync() {
         syncQueued = false
         var spaces: [Space] = []
-        withObservationTracking {
+        withPerceptionTracking {
             colors = SidebarColors(store.focusedSpace(window: ui.windowID).theme.palette)
             incognito = store.window(ui.windowID).isIncognito
             let f = store.focusedSpaceID(window: ui.windowID)
@@ -1563,7 +1564,7 @@ final class LibraryButtonView: NSView {
     override var mouseDownCanMoveWindow: Bool { false }
 
     private func observe() {
-        let (download, active) = withObservationTracking { (ui.recentDownload, ui.appActive) } onChange: { [weak self] in
+        let (download, active) = withPerceptionTracking { (ui.recentDownload, ui.appActive) } onChange: { [weak self] in
             Task { @MainActor in self?.observe() }
         }
         guard let download else { bin.isHidden = true; shownDownload = nil; return }

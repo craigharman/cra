@@ -1,6 +1,6 @@
 import AppKit
 import IOKit.pwr_mgt
-import Observation
+import Perception
 import Sparkle
 
 /// Arc's SoftwareUpdaterClient, rebuilt from the same parts (docs/arc-reverse-engineering.md,
@@ -10,7 +10,7 @@ import Sparkle
 /// sidebar banners, and a downloaded update installs itself once the user is away, the
 /// way Arc's auto-update restarts Arc.
 @MainActor
-@Observable
+@Perceptible
 final class SoftwareUpdater: NSObject {
     static let shared = SoftwareUpdater()
 
@@ -89,15 +89,15 @@ final class SoftwareUpdater: NSObject {
     static let releaseNotesURL = SiteLinks.tagged("https://crabrowser.app/release-notes", from: .whatsNew)
     static let downloadURL = "https://github.com/VictorKildahl/cra/releases/latest"
 
-    @ObservationIgnored private var updater: SPUUpdater?
-    @ObservationIgnored private weak var app: AppDelegate?
-    @ObservationIgnored private var window: UpdaterWindowController?
-    @ObservationIgnored private var installNow: (() -> Void)?
-    @ObservationIgnored private var choiceReply: ((SPUUserUpdateChoice) -> Void)?
-    @ObservationIgnored private var cancellation: (() -> Void)?
-    @ObservationIgnored private var acknowledgement: (() -> Void)?
-    @ObservationIgnored private var autoRestartTimer: ScheduledWork?
-    @ObservationIgnored private var inactiveSince: Date?
+    @PerceptionIgnored private var updater: SPUUpdater?
+    @PerceptionIgnored private weak var app: AppDelegate?
+    @PerceptionIgnored private var window: UpdaterWindowController?
+    @PerceptionIgnored private var installNow: (() -> Void)?
+    @PerceptionIgnored private var choiceReply: ((SPUUserUpdateChoice) -> Void)?
+    @PerceptionIgnored private var cancellation: (() -> Void)?
+    @PerceptionIgnored private var acknowledgement: (() -> Void)?
+    @PerceptionIgnored private var autoRestartTimer: ScheduledWork?
+    @PerceptionIgnored private var inactiveSince: Date?
 
     private enum Keys {
         static let pendingBuild = "updateSummaryPendingBuild"

@@ -1,4 +1,4 @@
-import Observation
+import Perception
 
 /// Calls `apply` with what `read` returns now, then again whenever that value changes, for as
 /// long as the app runs. Observation reports a change on every write to a stored property, and
@@ -10,7 +10,7 @@ public func observeChanges<Value: Equatable>(of read: @escaping @MainActor () ->
                                              apply: @escaping @MainActor (Value) -> Void) {
     var last: Value?
     func track() {
-        let value = withObservationTracking(read) {
+        let value = withPerceptionTracking(read) {
             Task { @MainActor in track() }
         }
         if value != last {

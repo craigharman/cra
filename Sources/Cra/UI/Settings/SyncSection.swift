@@ -1,3 +1,4 @@
+import Perception
 import AppKit
 import SwiftUI
 
@@ -11,77 +12,81 @@ struct SyncSection: View {
     @State private var notice: String?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) { content }
-            .alert("Use the sidebar from your other Mac?", isPresented: Binding(get: { sync.pendingChoice != nil }, set: { _ in })) {
-                Button("Use That Sidebar") { sync.useRemote() }
-                Button("Replace It with This Mac’s") { sync.useLocal() }
-                Button("Cancel", role: .cancel) { sync.disable() }
-            } message: {
-                if let found = sync.pendingChoice { Text(Self.describe(found) + " Using it replaces this Mac’s sidebar, settings and shortcuts.") }
-            }
-            .alert("Import these settings?", isPresented: Binding(get: { importing != nil }, set: { if !$0 { importing = nil } })) {
-                Button("Import") {
-                    if let (url, _) = importing { notice = sync.importBundle(from: url) ? "Settings imported." : "The folder holds no Cra settings." }
+        WithPerceptionTracking {
+            VStack(alignment: .leading, spacing: 0) { content }
+                .alert("Use the sidebar from your other Mac?", isPresented: Binding(get: { sync.pendingChoice != nil }, set: { _ in })) {
+                    Button("Use That Sidebar") { sync.useRemote() }
+                    Button("Replace It with This Mac’s") { sync.useLocal() }
+                    Button("Cancel", role: .cancel) { sync.disable() }
+                } message: {
+                    if let found = sync.pendingChoice { Text(Self.describe(found) + " Using it replaces this Mac’s sidebar, settings and shortcuts.") }
                 }
-                Button("Cancel", role: .cancel) {}
-            } message: {
-                if let (_, s) = importing { Text(Self.describe(s) + " Importing replaces this Mac’s sidebar, settings and shortcuts.") }
-            }
+                .alert("Import these settings?", isPresented: Binding(get: { importing != nil }, set: { if !$0 { importing = nil } })) {
+                    Button("Import") {
+                        if let (url, _) = importing { notice = sync.importBundle(from: url) ? "Settings imported." : "The folder holds no Cra settings." }
+                    }
+                    Button("Cancel", role: .cancel) {}
+                } message: {
+                    if let (_, s) = importing { Text(Self.describe(s) + " Importing replaces this Mac’s sidebar, settings and shortcuts.") }
+                }
+        }
     }
 
     @ViewBuilder private var content: some View {
-        SettingsHeader("Sync")
-        SettingsFeatureCard {
-            SettingsPlainRow("Sync with iCloud",
-                               detail: sync.iCloudAvailable
-                                   ? "Your spaces, pinned tabs, favorites, settings and shortcuts stay the same on every Mac signed in to this iCloud account."
-                                   : iCloudUnavailableReason,
-                               trailing: {
-                Toggle("Sync with iCloud", isOn: Binding(get: { sync.location == .iCloud }, set: { on in on ? enableICloud() : sync.disable() }))
-                    .toggleStyle(.switch).labelsHidden()
-                    .disabled(!sync.iCloudAvailable)
-            }) {
-                // macOS doesn't tell apps which Apple Account is signed in; System Settings shows it.
-                Button("iCloud Settings…") { NSWorkspace.shared.open(Self.appleAccountSettings) }
-            }
-            if case .folder(let path)? = sync.location {
-                SettingsCardDivider()
-                SettingsCardRow {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Sync folder").font(.system(size: 13))
-                        Text((path as NSString).abbreviatingWithTildeInPath)
-                            .font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
+        WithPerceptionTracking {
+            SettingsHeader("Sync")
+            SettingsFeatureCard {
+                SettingsPlainRow("Sync with iCloud",
+                                   detail: sync.iCloudAvailable
+                                       ? "Your spaces, pinned tabs, favorites, settings and shortcuts stay the same on every Mac signed in to this iCloud account."
+                                       : iCloudUnavailableReason,
+                                   trailing: {
+                    Toggle("Sync with iCloud", isOn: Binding(get: { sync.location == .iCloud }, set: { on in on ? enableICloud() : sync.disable() }))
+                        .toggleStyle(.switch).labelsHidden()
+                        .disabled(!sync.iCloudAvailable)
+                }) {
+                    // macOS doesn't tell apps which Apple Account is signed in; System Settings shows it.
+                    Button("iCloud Settings…") { NSWorkspace.shared.open(Self.appleAccountSettings) }
+                }
+                if case .folder(let path)? = sync.location {
+                    SettingsCardDivider()
+                    SettingsCardRow {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Sync folder").font(.system(size: 13))
+                            Text((path as NSString).abbreviatingWithTildeInPath)
+                                .font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
+                        }
+                    } trailing: {
+                        Button("Stop Syncing") { sync.disable() }
                     }
-                } trailing: {
-                    Button("Stop Syncing") { sync.disable() }
-                }
-            } else if sync.location == nil {
-                SettingsCardDivider()
-                SettingsCardRow {
-                    Text("Or sync through a folder in Dropbox, OneDrive or a similar service").font(.system(size: 13))
-                } trailing: {
-                    Button("Use a Folder…") { chooseFolder() }
-                }
-            }
-            if sync.location != nil {
-                SettingsCardDivider()
-                SettingsCardRow {
-                    Text(status).font(.system(size: 13)).foregroundStyle(sync.error == nil ? .secondary : Color.red)
-                } trailing: {
-                    if !sync.otherDevices.isEmpty {
-                        Text("Also on " + sync.otherDevices.joined(separator: ", ")).font(.system(size: 13)).foregroundStyle(.secondary)
+                } else if sync.location == nil {
+                    SettingsCardDivider()
+                    SettingsCardRow {
+                        Text("Or sync through a folder in Dropbox, OneDrive or a similar service").font(.system(size: 13))
+                    } trailing: {
+                        Button("Use a Folder…") { chooseFolder() }
                     }
                 }
+                if sync.location != nil {
+                    SettingsCardDivider()
+                    SettingsCardRow {
+                        Text(status).font(.system(size: 13)).foregroundStyle(sync.error == nil ? .secondary : Color.red)
+                    } trailing: {
+                        if !sync.otherDevices.isEmpty {
+                            Text("Also on " + sync.otherDevices.joined(separator: ", ")).font(.system(size: 13)).foregroundStyle(.secondary)
+                        }
+                    }
+                }
+                SettingsCardDivider()
+                SettingsCardRow {
+                    Text("Settings file").font(.system(size: 13))
+                } trailing: {
+                    Button("Export…") { exportBundle() }
+                    Button("Import…") { importBundle() }
+                }
             }
-            SettingsCardDivider()
-            SettingsCardRow {
-                Text("Settings file").font(.system(size: 13))
-            } trailing: {
-                Button("Export…") { exportBundle() }
-                Button("Import…") { importBundle() }
-            }
+            SettingsFootnote(notice ?? "Spaces, pinned tabs, favorites, folders, settings and shortcuts sync. Logins, cookies, history and extensions stay on each Mac.")
         }
-        SettingsFootnote(notice ?? "Spaces, pinned tabs, favorites, folders, settings and shortcuts sync. Logins, cookies, history and extensions stay on each Mac.")
     }
 
     static let appleAccountSettings = URL(string: "x-apple.systempreferences:com.apple.systempreferences.AppleIDSettings")!

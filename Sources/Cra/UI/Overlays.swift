@@ -1,9 +1,9 @@
 import AppKit
-import Observation
+import Perception
 
 /// Overlay state shown on top of the web content: link status, find bar.
 @MainActor
-@Observable
+@Perceptible
 final class OverlayState {
     var status = ""
     var findVisible = false
@@ -47,7 +47,7 @@ final class StatusBubbleView: NSView {
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
 
     private func observe() {
-        let text = withObservationTracking { overlay.status } onChange: { [weak self] in
+        let text = withPerceptionTracking { overlay.status } onChange: { [weak self] in
             Task { @MainActor in self?.observe() }
         }
         label.stringValue = text
@@ -116,7 +116,7 @@ final class FindBarView: NSView, NSTextFieldDelegate {
     required init?(coder: NSCoder) { fatalError() }
 
     private func observe() {
-        let (visible, query, matches, active, token) = withObservationTracking {
+        let (visible, query, matches, active, token) = withPerceptionTracking {
             (overlay.findVisible, overlay.findQuery, overlay.findMatchCount, overlay.findActiveMatch, overlay.findFocusToken)
         } onChange: { [weak self] in
             Task { @MainActor in self?.observe() }

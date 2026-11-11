@@ -1,7 +1,7 @@
 import CryptoKit
 import Foundation
 import IOKit
-import Observation
+import Perception
 
 /// Settings ▸ General ▸ Sync: the sidebar, the settings and the shortcut overrides kept the
 /// same on the user's Macs, through iCloud (the app's iCloud Documents container) or through
@@ -10,7 +10,7 @@ import Observation
 /// wrote when it is newer (SettingsSync in CraCore decides). No server of Cra's own: iCloud or
 /// the provider moves the files. Logins, cookies, history and the Chromium profile stay on each Mac.
 @MainActor
-@Observable
+@Perceptible
 final class SettingsSyncService {
     /// Where the bundle lives.
     enum Location: Codable, Equatable {

@@ -1,5 +1,5 @@
 import AppKit
-import Observation
+import Perception
 
 /// Keeps live folders current on Dia's schedule (its LiveFolderRefreshTrigger: periodicRefresh,
 /// windowFocus, manualRefresh, configChanged, externalTrigger): every two minutes while a Cra window
@@ -8,10 +8,10 @@ import Observation
 /// are the plugins' (resources/live-folder-plugins, docs/live-folder-plugins.md); tabs, timing and
 /// what a failure leaves in place are Cra's. See docs/live-folders.md, "Dia's refresh timing".
 @MainActor
-@Observable
+@Perceptible
 final class LiveFolderManager {
     static let shared = LiveFolderManager()
-    @ObservationIgnored private weak var store: SidebarStore?
+    @PerceptionIgnored private weak var store: SidebarStore?
     /// Folders with a refresh in flight; their refresh button spins.
     private(set) var refreshing: Set<UUID> = []
     /// Groups (repositories, projects) in each folder's last results plus the hidden ones: the folder
@@ -21,12 +21,12 @@ final class LiveFolderManager {
     private(set) var diagnostics: [UUID: String] = [:]
     /// Folders whose filters, profile or server changed while a refresh was out: they refresh again
     /// once it's back (its answer is for the old settings and is dropped).
-    @ObservationIgnored private var pendingRefresh: Set<UUID> = []
-    @ObservationIgnored private var timer: ScheduledWork?
+    @PerceptionIgnored private var pendingRefresh: Set<UUID> = []
+    @PerceptionIgnored private var timer: ScheduledWork?
     /// The last address each tab reported, to tell what a page came from.
-    @ObservationIgnored private var lastURL: [UUID: String] = [:]
+    @PerceptionIgnored private var lastURL: [UUID: String] = [:]
     /// A page on a folder's service loaded while it waits for a sign-in: refresh once pages have settled.
-    @ObservationIgnored private var signInChecks: [UUID: DispatchWorkItem] = [:]
+    @PerceptionIgnored private var signInChecks: [UUID: DispatchWorkItem] = [:]
 
     /// Dia's github-live-folder-min-refresh-interval-seconds (120 in its flag cache, 27 Oct 2026).
     nonisolated static let refreshInterval: TimeInterval = 120

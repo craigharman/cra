@@ -1,3 +1,4 @@
+import Perception
 import AppKit
 import SwiftUI
 
@@ -196,7 +197,7 @@ final class SpaceHeaderView: NSView, NSTextFieldDelegate {
         syncQueued = false
         var hide = false
         let wasCollapsed = collapsed
-        withObservationTracking {
+        withPerceptionTracking {
             guard let space = store.space(spaceID) else { return }
             emoji.stringValue = space.emoji
             symbol.image = space.symbol.flatMap { SidebarSymbols.image($0, size: 13, weight: .medium) }
@@ -644,7 +645,7 @@ final class FavoritesGridView: NSView {
         var pins: [Pin] = []
         var protectedMedia: String?
         var playing: [UUID: Playing] = [:]
-        withObservationTracking {
+        withPerceptionTracking {
             guard let space = store.space(spaceID) else { return }
             palette = space.theme.palette
             // Arc (4 Nov): with the URL field in the sidebar, the pins leave it for this grid.

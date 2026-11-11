@@ -1,5 +1,5 @@
 import AppKit
-import Observation
+import Perception
 import SwiftUI
 
 /// Colors derived from a space theme, the way Arc derives a
@@ -160,12 +160,12 @@ extension SpaceTheme {
 
 /// macOS' light or dark appearance, which an Auto space theme follows (Arc: appearanceBased).
 /// Cra never sets NSApp.appearance, so the app's effective appearance is the system's.
-@Observable
+@Perceptible
 final class SystemAppearance: @unchecked Sendable {
     static let shared = SystemAppearance()
     /// Written on the main thread only.
     private(set) var isDark = false
-    @ObservationIgnored private var observation: NSKeyValueObservation?
+    @PerceptionIgnored private var observation: NSKeyValueObservation?
 
     @MainActor func start() {
         update()
@@ -219,11 +219,13 @@ struct NoiseOverlay: View {
     let amount: Double
     let isDark: Bool
     var body: some View {
-        Image(nsImage: NoiseTexture.image)
-            .resizable(resizingMode: .tile)
-            .opacity(amount * (isDark ? 0.1 : 0.09))
-            .blendMode(isDark ? .screen : .multiply)
-            .allowsHitTesting(false)
+        WithPerceptionTracking {
+            Image(nsImage: NoiseTexture.image)
+                .resizable(resizingMode: .tile)
+                .opacity(amount * (isDark ? 0.1 : 0.09))
+                .blendMode(isDark ? .screen : .multiply)
+                .allowsHitTesting(false)
+        }
     }
 }
 
@@ -231,24 +233,28 @@ struct SpaceBackground: View {
     let palette: SpacePalette
 
     var body: some View {
-        gradient
+        WithPerceptionTracking {
+            gradient
+        }
     }
 
     private var gradient: some View {
-        let scale = palette.vibrant ? CraTuning.shared.gradientAlphaScale : 1
-        let n = palette.gradientColors.count
-        let stops = palette.gradientColors.enumerated().map { i, c -> Gradient.Stop in
-            let t = n > 1 ? Double(i) / Double(n - 1) : 0
-            let top = palette.gradientAlpha * (palette.vibrant ? CraTuning.shared.gradientAlphaTopScale : 1)
-            let bottom = palette.gradientAlphaBottom * (palette.vibrant ? CraTuning.shared.gradientAlphaBottomScale : 1)
-            let a = (top + (bottom - top) * t) * scale
-            return Gradient.Stop(color: c.opacity(min(1, a)), location: t)
+        WithPerceptionTracking {
+            let scale = palette.vibrant ? CraTuning.shared.gradientAlphaScale : 1
+            let n = palette.gradientColors.count
+            let stops = palette.gradientColors.enumerated().map { i, c -> Gradient.Stop in
+                let t = n > 1 ? Double(i) / Double(n - 1) : 0
+                let top = palette.gradientAlpha * (palette.vibrant ? CraTuning.shared.gradientAlphaTopScale : 1)
+                let bottom = palette.gradientAlphaBottom * (palette.vibrant ? CraTuning.shared.gradientAlphaBottomScale : 1)
+                let a = (top + (bottom - top) * t) * scale
+                return Gradient.Stop(color: c.opacity(min(1, a)), location: t)
+            }
+            return ZStack {
+                LinearGradient(stops: stops, startPoint: .top, endPoint: .bottom)
+                NoiseOverlay(amount: palette.noise, isDark: palette.isDark)
+            }
+            .ignoresSafeArea()
         }
-        return ZStack {
-            LinearGradient(stops: stops, startPoint: .top, endPoint: .bottom)
-            NoiseOverlay(amount: palette.noise, isDark: palette.isDark)
-        }
-        .ignoresSafeArea()
     }
 
     /// Gradient stops as drawn: each colour carries the palette's top-to-bottom alpha.
@@ -292,7 +298,7 @@ final class SpaceBackgroundView: NSView {
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
 
     private func observe() {
-        let palette = withObservationTracking { store.focusedSpace(window: ui.windowID).theme.palette } onChange: { [weak self] in
+        let palette = withPerceptionTracking { store.focusedSpace(window: ui.windowID).theme.palette } onChange: { [weak self] in
             Task { @MainActor in self?.observe() }
         }
         noise.apply(palette)
@@ -396,7 +402,7 @@ final class PagedGradientView: NSView {
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
 
     private func observe() {
-        withObservationTracking {
+        withPerceptionTracking {
             _ = store.pagedSpaces(window: ui.windowID).map(\.theme)
             _ = store.focusedSpaceID(window: ui.windowID)
             _ = CraTuning.shared.gradientAlphaScale

@@ -1,5 +1,5 @@
 import AppKit
-import Observation
+import Perception
 
 /// A keyboard shortcut: CraCore's KeyChord (the keybindings.json format), read from and
 /// matched against AppKit key events here.
@@ -57,15 +57,15 @@ struct KeyAction: Identifiable, Hashable {
 
 /// The action table plus user overrides (keybindings.json).
 @MainActor
-@Observable
+@Perceptible
 final class KeyBindingRegistry {
     /// The app's one registry (AppDelegate.bindings), for the context menus' shortcut glyphs.
     static let shared = KeyBindingRegistry()
 
     private(set) var actions: [KeyAction]
-    @ObservationIgnored private let overridesFile = JSONStore<[String: [Shortcut]]>("keybindings.json")
-    @ObservationIgnored private var overrides: [String: [Shortcut]]
-    @ObservationIgnored private var pluginActions: [KeyAction] = []
+    @PerceptionIgnored private let overridesFile = JSONStore<[String: [Shortcut]]>("keybindings.json")
+    @PerceptionIgnored private var overrides: [String: [Shortcut]]
+    @PerceptionIgnored private var pluginActions: [KeyAction] = []
 
     private var defaultActions: [KeyAction] {
         var defaults = Self.defaults

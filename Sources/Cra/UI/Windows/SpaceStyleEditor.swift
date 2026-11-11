@@ -78,7 +78,7 @@ struct SpaceStyleEditor: View {
         )
         .environment(\.colorScheme, .dark)
         // Opening the editor leaves the theme as it is; the first change rebuilds it from the pad.
-        .onChange(of: pad) { _, p in
+        .onChange(of: pad) { p in
             theme = SpaceThemeVariants.theme(key: p.key, intensity: p.intensity, noise: p.noise, appearance: p.appearance)
             onChange(theme)
         }

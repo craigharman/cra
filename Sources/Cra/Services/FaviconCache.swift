@@ -1,11 +1,11 @@
 import AppKit
-import Observation
+import Perception
 
 /// Favicons keyed by host or by a tab's own icon (FaviconKey). Chromium hands us PNG bytes through the bridge;
 /// we keep them in memory and on disk so the sidebar is populated on launch
 /// before any tab has loaded (Arc: SidebarItemsFaviconCache).
 @MainActor
-@Observable
+@Perceptible
 final class FaviconCache {
     private static let persistenceQueue = DispatchQueue(label: "dk.kildahl.cra.favicons", qos: .utility)
     private(set) var images: [String: NSImage] = [:]

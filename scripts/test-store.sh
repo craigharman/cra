@@ -2,9 +2,10 @@
 # The production store, AppComposition and importers on a manual clock; no CEF or AppKit windows.
 set -euo pipefail
 cd "$(dirname "$0")/.."
+source scripts/perception-test-flags.sh
 TEST_DIR="$(mktemp -d /tmp/cra-store-tests.XXXXXX)"
 trap 'rm -rf "$TEST_DIR"' EXIT
-xcrun swiftc -swift-version 5 -parse-as-library ${CRA_TEST_SWIFTC_FLAGS:-} \
+xcrun swiftc -swift-version 5 -parse-as-library ${CRA_TEST_SWIFTC_FLAGS:-} "${CRA_PERCEPTION_SWIFTC_FLAGS[@]}" \
   Packages/CraCore/Sources/CraCore/*.swift Packages/CraCore/Sources/CraCore/Perf/*.swift Sources/Cra/Perf/Perf.swift \
   Sources/Cra/Services/Import/*.swift \
   Sources/Cra/Services/SidebarStore.swift Sources/Cra/Services/SidebarIntegrity.swift Sources/Cra/Services/Persistence.swift \

@@ -4,10 +4,11 @@
 # leaves its input in build/fuzz/crash-input.
 set -euo pipefail
 cd "$(dirname "$0")/.."
+source scripts/perception-test-flags.sh
 TEST_DIR="$(mktemp -d /tmp/cra-fuzz.XXXXXX)"
 trap 'rm -rf "$TEST_DIR"' EXIT
 mkdir -p build/fuzz
-xcrun swiftc -swift-version 5 -parse-as-library -sanitize=address -g \
+xcrun swiftc -swift-version 5 -parse-as-library "${CRA_PERCEPTION_SWIFTC_FLAGS[@]}" -sanitize=address -g \
   Packages/CraCore/Sources/CraCore/*.swift Packages/CraCore/Sources/CraCore/Perf/*.swift Sources/Cra/Perf/Perf.swift \
   Sources/Cra/Services/Import/*.swift \
   Sources/Cra/Services/SidebarStore.swift Sources/Cra/Services/SidebarIntegrity.swift Sources/Cra/Services/Persistence.swift \

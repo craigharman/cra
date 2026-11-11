@@ -1,9 +1,9 @@
 import Foundation
-import Observation
+import Perception
 
 /// One sidebar item's change counter. A view that read the item depends on this, not on
 /// every item.
-@MainActor @Observable
+@MainActor @Perceptible
 public final class ItemSignal {
     public var version = 0
 
@@ -14,13 +14,13 @@ public final class ItemSignal {
 /// write (a tab switch marks the tab active, a page reports its title) re-rendered every list
 /// and row in every space. Now a view re-renders when an item it read changed; a walk over
 /// all items (`all`, `values`) still depends on every change.
-@MainActor @Observable
+@MainActor @Perceptible
 public final class ItemTable {
-    @ObservationIgnored private var storage: [UUID: SidebarItem] = [:]
-    @ObservationIgnored private var signals: [UUID: ItemSignal] = [:]
+    @PerceptionIgnored private var storage: [UUID: SidebarItem] = [:]
+    @PerceptionIgnored private var signals: [UUID: ItemSignal] = [:]
     /// Bumped on every change: what a walk over all items observes.
     private var version = 0
-    @ObservationIgnored private var tabs = 0
+    @PerceptionIgnored private var tabs = 0
 
     public init() {}
 

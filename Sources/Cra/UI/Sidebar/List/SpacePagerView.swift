@@ -1,3 +1,4 @@
+import Perception
 import AppKit
 import SwiftUI
 
@@ -64,7 +65,7 @@ final class SpacePagerView: NSView {
     }
 
     private func observeSpaces() {
-        withObservationTracking {
+        withPerceptionTracking {
             _ = store.pagedSpaces(window: ui.windowID).map(\.id)
             _ = store.focusedSpaceID(window: ui.windowID)
         } onChange: { [weak self] in

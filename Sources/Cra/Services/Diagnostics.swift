@@ -137,7 +137,11 @@ enum Diagnostics {
         panel.nameFieldStringValue = fileName
         panel.allowedContentTypes = [.zip]
         panel.directoryURL = FileManager.default.urls(for: .desktopDirectory, in: .userDomainMask).first
-        NSApp.activate()
+        if #available(macOS 14.0, *) {
+            NSApp.activate()
+        } else {
+            NSApp.activate(ignoringOtherApps: true)
+        }
         return panel.runModal() == .OK ? panel.url : nil
     }
 

@@ -1,5 +1,5 @@
 import AppKit
-import Observation
+import Perception
 import ServiceManagement
 
 /// Default browser, Dock tile and login item: what Dia's onboarding step
@@ -7,7 +7,7 @@ import ServiceManagement
 /// LaunchAtLoginClient) and Arc's "Set as Default Browser" menu item change.
 /// See docs/arc-reverse-engineering.md, "Default browser".
 @MainActor
-@Observable
+@Perceptible
 final class SystemIntegration {
     static let shared = SystemIntegration()
 

@@ -1,3 +1,4 @@
+import Perception
 import AppKit
 
 /// Arc 1.170's Site Control Center: the sliders button at the end of the toolbar and of the
@@ -96,7 +97,7 @@ final class SiteControlCenterView: NSView {
     }
 
     private func observe() {
-        withObservationTracking {
+        withPerceptionTracking {
             _ = extensions.entries
             _ = extensions.pinned
             _ = store.settings

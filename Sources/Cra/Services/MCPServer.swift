@@ -1,9 +1,9 @@
 import AppKit
 import CraCEF
 import Darwin
-import Observation
+import Perception
 
-@MainActor @Observable
+@MainActor @Perceptible
 final class MCPServer {
     static let shared = MCPServer()
     private(set) var enabled = false
@@ -28,7 +28,7 @@ final class MCPServer {
     }
     /// For this run only (launch arguments of isolated test copies): agents allowed without a
     /// prompt (-mcpApprovesAgents YES), and page_evaluate on (-mcpAllowsScripts YES).
-    @ObservationIgnored private let approvesAgents = MCPServer.launchArgument("mcpApprovesAgents")
+    @PerceptionIgnored private let approvesAgents = MCPServer.launchArgument("mcpApprovesAgents")
 
     /// A YES/NO launch argument (-key YES), never a saved preference.
     private static func launchArgument(_ key: String) -> Bool {
@@ -47,19 +47,19 @@ final class MCPServer {
         try? settings.encoded().write(to: url, options: .atomic)
         try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
     }
-    @ObservationIgnored private var asking: [String: AppDialog] = [:]
-    @ObservationIgnored private var identities: [Int32: String] = [:]
-    @ObservationIgnored private weak var app: AppDelegate?
-    @ObservationIgnored private var endpoint: MCPListener?
-    @ObservationIgnored private var listener: DispatchSourceRead?
-    @ObservationIgnored private var clients: Set<Int32> = []
-    @ObservationIgnored private var generation = UUID()
-    @ObservationIgnored private var busyTabs: [UUID: UUID] = [:]
-    @ObservationIgnored private var pages: [UUID: MCPPage] = [:]
-    @ObservationIgnored private var ownedTabs: [UUID: Set<UUID>] = [:]
-    @ObservationIgnored private var agentTabs: [UUID: (owner: UUID, browser: CraBrowser)] = [:]
-    @ObservationIgnored private var transfers: [UUID: MCPTransfers] = [:]
-    @ObservationIgnored private var pointerPositions: [UUID: CGPoint] = [:]
+    @PerceptionIgnored private var asking: [String: AppDialog] = [:]
+    @PerceptionIgnored private var identities: [Int32: String] = [:]
+    @PerceptionIgnored private weak var app: AppDelegate?
+    @PerceptionIgnored private var endpoint: MCPListener?
+    @PerceptionIgnored private var listener: DispatchSourceRead?
+    @PerceptionIgnored private var clients: Set<Int32> = []
+    @PerceptionIgnored private var generation = UUID()
+    @PerceptionIgnored private var busyTabs: [UUID: UUID] = [:]
+    @PerceptionIgnored private var pages: [UUID: MCPPage] = [:]
+    @PerceptionIgnored private var ownedTabs: [UUID: Set<UUID>] = [:]
+    @PerceptionIgnored private var agentTabs: [UUID: (owner: UUID, browser: CraBrowser)] = [:]
+    @PerceptionIgnored private var transfers: [UUID: MCPTransfers] = [:]
+    @PerceptionIgnored private var pointerPositions: [UUID: CGPoint] = [:]
     private var path: String { AppPaths.file("mcp.sock").path }
 
     var configuration: String {
@@ -532,7 +532,7 @@ final class MCPServer {
     /// Cra's toast while an agent acts ("Claude Code is using Cra", Stop), in the window that
     /// holds the tab it works in. Shown again at most every 3 s, so it stays up while the agent
     /// works and goes ShinyToast.visibleFor after its last action. Reading never shows it.
-    @ObservationIgnored private var pillShown: [UUID: ContinuousClock.Instant] = [:]
+    @PerceptionIgnored private var pillShown: [UUID: ContinuousClock.Instant] = [:]
     private static let quietTools: Set<String> = ["site_notes", "tab_show", "tab_move", "tab_update", "folder_create", "page_dialog"]
 
     private func noteActivity(agent: String, tool: String, arguments: [String: Any]) {

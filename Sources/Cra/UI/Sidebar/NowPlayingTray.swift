@@ -1,3 +1,4 @@
+import Perception
 import AppKit
 
 /// Arc 1.171's "now playing" player over the bottom of the tab list (issue #33): Arc's
@@ -134,7 +135,7 @@ final class NowPlayingTrayView: NSView {
     }
 
     private func observe() {
-        let shown = withObservationTracking { () -> [(NowPlaying.Entry, NowPlayingCardModel)] in
+        let shown = withPerceptionTracking { () -> [(NowPlaying.Entry, NowPlayingCardModel)] in
             ui.nowPlaying.shown.map { e in
                 let item = store.item(e.id)
                 let icon = favicons.image(forKey: item?.tab?.iconKey)

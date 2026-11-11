@@ -6,13 +6,19 @@ import PackageDescription
 // and runs without vendor/cef (a target in the root package would build CEF first).
 let package = Package(
     name: "CraCore",
-    platforms: [.macOS(.v14)],
+    platforms: [.macOS(.v13)],
     products: [
         .library(name: "CraCore", targets: ["CraCore"]),
+        // Direct swiftc test harnesses need a linkable archive of Perception.
+        .library(name: "CraPerceptionTestSupport", type: .static, targets: ["CraPerceptionTestSupport"]),
+    ],
+    dependencies: [
+        .package(url: "https://github.com/pointfreeco/swift-perception", exact: "2.0.12"),
     ],
     targets: [
-        .target(name: "CraCore"),
-        .testTarget(name: "CraCoreTests", dependencies: ["CraCore"], resources: [.copy("Fixtures")]),
+        .target(name: "CraPerceptionTestSupport", dependencies: [.product(name: "Perception", package: "swift-perception")]),
+        .target(name: "CraCore", dependencies: [.product(name: "Perception", package: "swift-perception")]),
+        .testTarget(name: "CraCoreTests", dependencies: ["CraCore", .product(name: "Perception", package: "swift-perception")], resources: [.copy("Fixtures")]),
     ],
     swiftLanguageVersions: [.v5]
 )

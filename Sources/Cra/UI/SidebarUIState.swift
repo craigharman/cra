@@ -1,18 +1,18 @@
 import AppKit
-import Observation
+import Perception
 import SwiftUI
 import UniformTypeIdentifiers
 
 /// Transient sidebar UI state shared between AppKit and SwiftUI.
 @MainActor
-@Observable
+@Perceptible
 final class SidebarUIState {
     /// The browser window this sidebar belongs to (its space and open tab, see WindowSession).
-    @ObservationIgnored var windowID = UUID()
+    @PerceptionIgnored var windowID = UUID()
     /// The tab whose last click in the sidebar went back to its pinned page from its favicon: the
     /// second press of that double-click does nothing (#345). Kept per window: held on the row
     /// view, it was gone by the second press of a real double-click.
-    @ObservationIgnored var iconWentBack: UUID?
+    @PerceptionIgnored var iconWentBack: UUID?
     var renamingID: UUID?
     /// Rename Space… chosen in the dock (#339): that space's header turns its name into a field.
     var renamingSpaceID: UUID?
@@ -30,7 +30,7 @@ final class SidebarUIState {
     /// Immediate sound state for favorite music notes.
     var soundPlayingTabIDs: Set<UUID> = []
     /// The window's sidebar player (NowPlayingTrayView), fed by its BrowserManager.
-    @ObservationIgnored let nowPlaying = NowPlaying()
+    @PerceptionIgnored let nowPlaying = NowPlaying()
     var canGoBack = false
     var canGoForward = false
     var isLoading = false
@@ -45,26 +45,26 @@ final class SidebarUIState {
     /// DownloadToLibrary "bin": the file's thumbnail that the download glyph flies into).
     var recentDownload: RecentDownload?
     /// The Library button's view, where download flights land.
-    @ObservationIgnored weak var libraryAnchor: NSView?
+    @PerceptionIgnored weak var libraryAnchor: NSView?
     /// Arc's downloads list over the bottom of the sidebar, open while the Library
     /// button (or the list) is hovered.
     var downloadsListOpen = false
-    @ObservationIgnored var libraryHovered = false
-    @ObservationIgnored var downloadsListHovered = false
-    @ObservationIgnored var downloadsListWork: DispatchWorkItem?
+    @PerceptionIgnored var libraryHovered = false
+    @PerceptionIgnored var downloadsListHovered = false
+    @PerceptionIgnored var downloadsListWork: DispatchWorkItem?
     /// The Library page this window's sidebar shows, nil while it shows the tabs (Arc keeps the
     /// Library per window and reopens it on the page last shown).
     var libraryPage: LibraryPage?
-    @ObservationIgnored var lastLibraryPage: LibraryPage = .downloads
+    @PerceptionIgnored var lastLibraryPage: LibraryPage = .downloads
     /// A two-finger swipe pulling the Library in from the left of the first space, or back out
     /// (Arc 1.171): how much of it shows, 0 the space, 1 the Library, past 1 while it
     /// rubber-bands. nil when no such swipe is tracking or settling.
-    @ObservationIgnored var libraryReveal: CGFloat? { didSet { for f in libraryRevealObservers { f() } } }
+    @PerceptionIgnored var libraryReveal: CGFloat? { didSet { for f in libraryRevealObservers { f() } } }
     /// The page the swipe brings in, the Library's width on it and the sidebar's own width.
-    @ObservationIgnored var libraryRevealPage: LibraryPage = .downloads
-    @ObservationIgnored var libraryRevealWidth: CGFloat = 0
-    @ObservationIgnored var libraryRevealBase: CGFloat = 0
-    @ObservationIgnored private var libraryRevealObservers: [() -> Void] = []
+    @PerceptionIgnored var libraryRevealPage: LibraryPage = .downloads
+    @PerceptionIgnored var libraryRevealWidth: CGFloat = 0
+    @PerceptionIgnored var libraryRevealBase: CGFloat = 0
+    @PerceptionIgnored private var libraryRevealObservers: [() -> Void] = []
     func observeLibraryReveal(_ f: @escaping () -> Void) { libraryRevealObservers.append(f) }
     /// Tab chosen from the keyboard in another space (the tab switcher); Arc draws its
     /// yellow/black dashed ring around it until the mouse picks another tab.
@@ -73,11 +73,11 @@ final class SidebarUIState {
     /// movable by its background; the window controller turns that off while
     /// this is true so a press starts SwiftUI's `.draggable`, not a window drag.
     var pointerOverDraggable: Bool { draggableUnderPointer != nil }
-    @ObservationIgnored var onPointerOverDraggableChange: (Bool) -> Void = { _ in }
+    @PerceptionIgnored var onPointerOverDraggableChange: (Bool) -> Void = { _ in }
     /// Moving between rows, the next row's hover can arrive before the last
     /// one's exit; a shared flag then ended up false over a row and the press
     /// dragged the window instead of the tab. Each row clears only itself.
-    @ObservationIgnored private var draggableUnderPointer: UUID? {
+    @PerceptionIgnored private var draggableUnderPointer: UUID? {
         didSet { if (oldValue != nil) != (draggableUnderPointer != nil) { onPointerOverDraggableChange(pointerOverDraggable) } }
     }
 
@@ -94,14 +94,14 @@ final class SidebarUIState {
     /// 0 at rest. The sidebar pages and the window tint follow it (Dia: PageSwipeController).
     var spaceSwipe: CGFloat = 0 { didSet { for f in spaceSwipeObservers { f() } } }
     /// The space pager and the window tint follow the swipe directly in AppKit, not through SwiftUI.
-    @ObservationIgnored private var spaceSwipeObservers: [() -> Void] = []
+    @PerceptionIgnored private var spaceSwipeObservers: [() -> Void] = []
     func observeSpaceSwipe(_ f: @escaping () -> Void) { spaceSwipeObservers.append(f) }
     /// Release velocity for the settle spring, relative to the distance left to travel.
     var spaceSettleVelocity: Double = 0
     /// The strip is springing onto its page (after a swipe or a space change); it takes no
     /// clicks or hovers until then.
     var spaceSettling = false
-    @ObservationIgnored private var settleGeneration = 0
+    @PerceptionIgnored private var settleGeneration = 0
 
     /// Returns the settle's number for `endSpaceSettle`.
     func beginSpaceSettle() -> Int {

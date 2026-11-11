@@ -1,18 +1,18 @@
 import Foundation
-import Observation
+import Perception
 
 /// The single source of truth for spaces, tabs, folders, favorites, the
 /// archive and window preferences. Mutations here are what Arc's
 /// SidebarDataStore mutations do; persistence mirrors its Storable*.json files.
 @MainActor
-@Observable
+@Perceptible
 final class SidebarStore {
     // MARK: State
 
     private(set) var spaces: [UUID: Space] = [:]
     /// The stored theme of a space whose theme an editor is previewing (`previewTheme`): what
     /// goes to disk until the editor saves, and what Cancel or Escape puts back.
-    @ObservationIgnored private var storedThemes: [UUID: SpaceTheme] = [:]
+    @PerceptionIgnored private var storedThemes: [UUID: SpaceTheme] = [:]
     private(set) var spaceOrder: [UUID] = []
     /// Profiles besides Default, in the order they were made.
     private(set) var profiles: [BrowserProfile] = []
@@ -23,7 +23,7 @@ final class SidebarStore {
     let items = ItemTable()
     private(set) var archive: [ArchivedItem] = [] { didSet { archiveChanged = true } }
     /// archive.json is by far the largest file; it is written only when the archive changed.
-    @ObservationIgnored private var archiveChanged = false
+    @PerceptionIgnored private var archiveChanged = false
     var prefs = WindowPrefs() {
         didSet {
             prefsStore.save(prefs.withoutIncognito)
@@ -37,29 +37,29 @@ final class SidebarStore {
     private(set) var revision = 0
     /// The browser window that menu commands, new tabs and the command bar act on:
     /// the one the user is in (AppDelegate follows the key window).
-    @ObservationIgnored var activeWindowID = UUID() {
+    @PerceptionIgnored var activeWindowID = UUID() {
         didSet { if !isStandalone(window: activeWindowID) { lastNormalWindowID = activeWindowID } }
     }
     /// The normal window in use last: where links from other apps and the Library go
     /// while an incognito or Blank Window is in front.
-    @ObservationIgnored private(set) var lastNormalWindowID = UUID()
+    @PerceptionIgnored private(set) var lastNormalWindowID = UUID()
     /// Spaces of incognito windows. Not in `spaceOrder`, never saved.
     private(set) var incognitoSpaceIDs: Set<UUID> = []
     /// Spaces of Blank Windows (BlankWindow, #220): saved with the window, in no space list.
     private(set) var blankSpaceIDs: Set<UUID> = []
     /// Per window, the tab shown before the selected one: a close goes back to it (CloseSuccessor).
     /// Not saved: after a relaunch it has no page, so Arc wouldn't go back to it either.
-    @ObservationIgnored private var previousTab: [UUID: UUID] = [:]
+    @PerceptionIgnored private var previousTab: [UUID: UUID] = [:]
     /// Per window and space, the pinned row a collapsed pinned section keeps in sight (PinnedPeek).
     /// Not saved, like Arc's peekedPinnedSidebarItemID. Observed: the collapsed list draws it.
     private var pinnedPeeks: [UUID: [UUID: UUID]] = [:]
     /// Whether a tab's page is loaded; AppDelegate asks the windows' browser managers.
-    @ObservationIgnored var hasPage: (UUID) -> Bool = { _ in true }
+    @PerceptionIgnored var hasPage: (UUID) -> Bool = { _ in true }
     /// A tab came into a space's pinned tabs from elsewhere (⌘D, a drag, a menu): Tidy Tab Titles
     /// may give it a shorter name (TidyTitlesService).
-    @ObservationIgnored var tabPinned: (UUID) -> Void = { _ in }
-    @ObservationIgnored var liveFolderChanged: (UUID) -> Void = { _ in }
-    @ObservationIgnored private var liveFolderVersions: [UUID: UUID] = [:]
+    @PerceptionIgnored var tabPinned: (UUID) -> Void = { _ in }
+    @PerceptionIgnored var liveFolderChanged: (UUID) -> Void = { _ in }
+    @PerceptionIgnored private var liveFolderVersions: [UUID: UUID] = [:]
 
     // MARK: Persistence
 
@@ -70,7 +70,7 @@ final class SidebarStore {
     private let historyFile = JSONStore<[HistoryEntry]>("history.json")
     private let rankingFile = JSONStore<RankingData>("commandbar.json")
     /// Every date the store stamps or compares (AppComposition passes the app's clock).
-    @ObservationIgnored let clock: Scheduler
+    @PerceptionIgnored let clock: Scheduler
 
     init(clock: Scheduler? = nil) {
         self.clock = clock ?? LiveScheduler.shared
@@ -2063,7 +2063,7 @@ final class SidebarStore {
     /// Not saved, like Arc's.
     private(set) var tidiedTabs: [UUID: Set<UUID>] = [:]
     /// What ⌘Z puts back: the last tidy, until a tab closes or a group's header is used.
-    @ObservationIgnored private var lastTidy: (spaceID: UUID, todayBefore: [UUID], moved: [UUID])?
+    @PerceptionIgnored private var lastTidy: (spaceID: UUID, todayBefore: [UUID], moved: [UUID])?
 
     /// Today's top-level tabs, outside any group: what Tidy sorts.
     func looseTodayTabs(_ sid: UUID) -> [SidebarItem] {

@@ -1,6 +1,6 @@
 import CraCore
 import Foundation
-import Observation
+import Perception
 import Testing
 
 @MainActor
@@ -14,7 +14,7 @@ struct ItemTableTests {
         table[a.id] = a
         table[b.id] = b
         let fired = Fired()
-        _ = withObservationTracking { table[a.id] } onChange: { fired.value = true }
+        _ = withPerceptionTracking { table[a.id] } onChange: { fired.value = true }
         var changed = b
         changed.title = "B"
         table[b.id] = changed
@@ -29,7 +29,7 @@ struct ItemTableTests {
         let table = ItemTable()
         let a = SidebarItem.folder("A", parent: nil)
         let fired = Fired()
-        _ = withObservationTracking { table.values.count } onChange: { fired.value = true }
+        _ = withPerceptionTracking { table.values.count } onChange: { fired.value = true }
         table[a.id] = a
         #expect(fired.value && table.all.count == 1 && table[a.id] == a)
     }
@@ -39,7 +39,7 @@ struct ItemTableTests {
         let a = SidebarItem.folder("A", parent: nil)
         table[a.id] = a
         let fired = Fired()
-        _ = withObservationTracking { table[a.id] } onChange: { fired.value = true }
+        _ = withPerceptionTracking { table[a.id] } onChange: { fired.value = true }
         table[a.id] = a
         #expect(!fired.value)
         table[a.id] = nil
@@ -50,7 +50,7 @@ struct ItemTableTests {
     @Test func observeAndNotify() {
         let table = ItemTable()
         let id = UUID(), fired = Fired()
-        _ = withObservationTracking { table.observe(id) } onChange: { fired.value = true }
+        _ = withPerceptionTracking { table.observe(id) } onChange: { fired.value = true }
         table.notify(UUID())
         #expect(!fired.value)
         table.notify(id)

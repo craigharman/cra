@@ -1,3 +1,4 @@
+import Perception
 import AppKit
 import Carbon.HIToolbox
 import CraCEF
@@ -130,8 +131,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         LiveFolderManager.shared.start(store: store)
         // A restart into an update while the user was away leaves the front app alone.
         if HitchMonitor.background {
-            // Measured behind whatever is in front; still on screen, so pages keep drawing.
-            for w in mainWindows { w.window?.orderBack(nil) }
+            WithPerceptionTracking {
+                // Measured behind whatever is in front; still on screen, so pages keep drawing.
+                for w in mainWindows { w.window?.orderBack(nil) }
+            }
         } else if !SoftwareUpdater.shared.launchedByAutoUpdate {
             NSApp.activate(ignoringOtherApps: true)
         }
@@ -557,7 +560,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         observeChanges(of: { [store] in store.settings.keepInMenuBar }) { [weak self] on in
             guard let self else { return }
             if on, menuBarItem == nil, !HitchMonitor.background {
-                menuBarItem = MenuBarItem { [weak self] menu in self?.buildMenuBarItemMenu(menu) }
+                WithPerceptionTracking {
+                    menuBarItem = MenuBarItem { [weak self] menu in self?.buildMenuBarItemMenu(menu) }
+                }
             } else if !on {
                 menuBarItem?.remove()
                 menuBarItem = nil
@@ -949,9 +954,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         let background = u.host == "open" && q("background") == "1"
         if InternalURLRaise.raises(host: u.host, little: little, background: background, littleWindowIsKey: keyLittleWindow != nil),
            !HitchMonitor.background {
-            main.showWindow(nil)
-            NSApp.activate(ignoringOtherApps: true)
-        }
+               WithPerceptionTracking {
+                main.showWindow(nil)
+                NSApp.activate(ignoringOtherApps: true)
+            }
+           }
         switch u.host {
         case "commandbar":
             // With the bar already open a new query is the next keystroke, not a new session.
@@ -974,7 +981,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                 let target = useNormalWindow(forSpace: space)
                 let tab = store.createTab(url: url, in: space, select: !background, window: target.windowID)
                 if background { store.markUnread(tab.id, true); target.browsers.ensureRuntime(for: tab.id) }
-                if !background, !HitchMonitor.background { target.showWindow(nil) }
+                if !background, !HitchMonitor.background {
+                    WithPerceptionTracking { target.showWindow(nil)     }
+                }
             } else {
                 useNormalWindow()
                 let tab = store.createTab(url: url, select: !background)

@@ -1,5 +1,5 @@
 import AppKit
-import Observation
+import Perception
 import SwiftUI
 
 /// Arc's tab switcher (ModalItemSwitcher): ⌃Tab shows the space's five most recent tabs
@@ -8,7 +8,7 @@ import SwiftUI
 /// switches, Esc cancels. A quick tap switches to the previous tab without showing the
 /// panel. Arc 1.170 measured 27 Oct 2026: no animation on open, move or close.
 @MainActor
-@Observable
+@Perceptible
 final class TabSwitcher {
     struct Item: Identifiable {
         let id: UUID
@@ -25,16 +25,16 @@ final class TabSwitcher {
     var isDark = true
     var palette: SpacePalette?
 
-    @ObservationIgnored var onShow: () -> Void = {}
-    @ObservationIgnored var onHide: () -> Void = {}
-    @ObservationIgnored var onCommit: (UUID) -> Void = { _ in }
+    @PerceptionIgnored var onShow: () -> Void = {}
+    @PerceptionIgnored var onHide: () -> Void = {}
+    @PerceptionIgnored var onCommit: (UUID) -> Void = { _ in }
     /// The direction a key press cycles in when it is one of the switcher's own shortcuts.
-    @ObservationIgnored var direction: (NSEvent) -> Int? = { _ in nil }
+    @PerceptionIgnored var direction: (NSEvent) -> Int? = { _ in nil }
 
-    @ObservationIgnored private var hold: NSEvent.ModifierFlags = []
-    @ObservationIgnored private var monitor: Any?
-    @ObservationIgnored private var showWork: DispatchWorkItem?
-    @ObservationIgnored private var pointerAtShow: NSPoint?
+    @PerceptionIgnored private var hold: NSEvent.ModifierFlags = []
+    @PerceptionIgnored private var monitor: Any?
+    @PerceptionIgnored private var showWork: DispatchWorkItem?
+    @PerceptionIgnored private var pointerAtShow: NSPoint?
 
     init() {
         NotificationCenter.default.addObserver(forName: NSApplication.didResignActiveNotification, object: nil, queue: .main) { [weak self] _ in

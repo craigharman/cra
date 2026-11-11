@@ -16,8 +16,8 @@ gains a finding fails, one that loses one is reported so the baseline can come d
   wall-clock-in-decision
       Date() in a file whose decisions run on the clock (store, tab sleep, live folders).
   raw-observation-tracking
-      withObservationTracking reached directly. The closure must read properties of an
-      @Observable class; a struct copied out before it (or a plain class) is never tracked and
+      withPerceptionTracking reached directly. The closure must read properties of an
+      @Perceptible class; a struct copied out before it (or a plain class) is never tracked and
       the view silently stops updating. New sites go through CraCore's observeChanges(of:apply:),
       where that is reviewed once.
   importer-without-fixture
@@ -112,7 +112,7 @@ def findings():
                 hit("timer-outside-scheduler", rel, i)
             if rel in CLOCK_FILES and re.search(r"\bDate\(\)", line):
                 hit("wall-clock-in-decision", rel, i)
-            if "withObservationTracking" in line:
+            if "withPerceptionTracking" in line:
                 hit("raw-observation-tracking", rel, i)
             if rel.startswith(PERF_DIRS):
                 if NETWORK.search(line):

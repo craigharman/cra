@@ -1,17 +1,17 @@
 import AppKit
-import Observation
+import Perception
 import QuickLookThumbnailing
 import SwiftUI
 
 /// Library ▸ Media's files (MediaLibrary): the folders read off the main thread, top level only,
 /// as Arc reads them. Reading Desktop and Documents asks macOS for access the first time.
 @MainActor
-@Observable
+@Perceptible
 final class MediaScanner {
     static let shared = MediaScanner()
     private(set) var files: [MediaLibrary.File] = []
-    @ObservationIgnored private var scanning = false
-    @ObservationIgnored private var thumbnails = NSCache<NSString, NSImage>()
+    @PerceptionIgnored private var scanning = false
+    @PerceptionIgnored private var thumbnails = NSCache<NSString, NSImage>()
 
     static func url(_ folder: MediaLibrary.Folder) -> URL? {
         let fm = FileManager.default
@@ -27,7 +27,7 @@ final class MediaScanner {
         }
     }
 
-    @ObservationIgnored private var pending: [MediaLibrary.Folder]?
+    @PerceptionIgnored private var pending: [MediaLibrary.Folder]?
 
     func rescan(_ folders: [MediaLibrary.Folder]) {
         // One scan at a time; the folders asked for meanwhile are read next.
@@ -243,35 +243,37 @@ struct MediaOptInCard: View {
     let show: () -> Void
 
     var body: some View {
-        VStack(spacing: 8) {
-            Image(systemName: "photo.on.rectangle.angled")
-                .font(.system(size: 28, weight: .medium))
-                .foregroundStyle(Color(red: 0.55, green: 0.47, blue: 0.93))
+        WithPerceptionTracking {
+            VStack(spacing: 8) {
+                Image(systemName: "photo.on.rectangle.angled")
+                    .font(.system(size: 28, weight: .medium))
+                    .foregroundStyle(Color(red: 0.55, green: 0.47, blue: 0.93))
+                    .padding(.top, 4)
+                Text("Your Media in the Library").font(.system(size: 13, weight: .semibold))
+                Text("Quickly grab screenshots, images, and videos from your computer by showing them in the Cra Library!")
+                    .font(.system(size: 11.5)).multilineTextAlignment(.center).foregroundStyle(.primary.opacity(0.8))
+                    .fixedSize(horizontal: false, vertical: true)
+                Button(action: show) {
+                    Text("Show Media").font(.system(size: 13, weight: .medium)).foregroundStyle(.white)
+                        .frame(maxWidth: .infinity).frame(height: 32)
+                        .background(RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .fill(LinearGradient(colors: [Color(red: 0.85, green: 0.55, blue: 0.80), Color(red: 0.40, green: 0.42, blue: 0.95)],
+                                                 startPoint: .leading, endPoint: .trailing)))
+                }
+                .buttonStyle(.plain)
                 .padding(.top, 4)
-            Text("Your Media in the Library").font(.system(size: 13, weight: .semibold))
-            Text("Quickly grab screenshots, images, and videos from your computer by showing them in the Cra Library!")
-                .font(.system(size: 11.5)).multilineTextAlignment(.center).foregroundStyle(.primary.opacity(0.8))
-                .fixedSize(horizontal: false, vertical: true)
-            Button(action: show) {
-                Text("Show Media").font(.system(size: 13, weight: .medium)).foregroundStyle(.white)
-                    .frame(maxWidth: .infinity).frame(height: 32)
-                    .background(RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .fill(LinearGradient(colors: [Color(red: 0.85, green: 0.55, blue: 0.80), Color(red: 0.40, green: 0.42, blue: 0.95)],
-                                             startPoint: .leading, endPoint: .trailing)))
+                HStack(alignment: .top, spacing: 4) {
+                    Image(systemName: "lock.fill").font(.system(size: 8))
+                    Text("Media never leaves your computer and is not viewable by anyone but you.").font(.system(size: 10))
+                }
+                .foregroundStyle(.secondary)
             }
-            .buttonStyle(.plain)
-            .padding(.top, 4)
-            HStack(alignment: .top, spacing: 4) {
-                Image(systemName: "lock.fill").font(.system(size: 8))
-                Text("Media never leaves your computer and is not viewable by anyone but you.").font(.system(size: 10))
-            }
-            .foregroundStyle(.secondary)
+            .padding(16)
+            .frame(width: 222)
+            .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(dark ? Color(white: 0.18) : .white)
+                .shadow(color: .black.opacity(0.15), radius: 10, y: 3))
+            .environment(\.colorScheme, dark ? .dark : .light)
         }
-        .padding(16)
-        .frame(width: 222)
-        .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(dark ? Color(white: 0.18) : .white)
-            .shadow(color: .black.opacity(0.15), radius: 10, y: 3))
-        .environment(\.colorScheme, dark ? .dark : .light)
     }
 }
 

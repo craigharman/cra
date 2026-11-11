@@ -1,11 +1,11 @@
 import CraCEF
-import Observation
+import Perception
 
 /// Settings ▸ Privacy ▸ Secure DNS (#133): Chromium's own setting in Local State, read live and
 /// written back, with no copy in settings.json. AppDelegate refreshes it when Chromium reports
 /// a change, wherever it was made (chrome://settings/security too).
 @MainActor
-@Observable
+@Perceptible
 final class SecureDNSSetting {
     static let shared = SecureDNSSetting()
 

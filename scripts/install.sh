@@ -18,7 +18,7 @@ main() {
   local url="${CRA_DOWNLOAD_URL:-https://github.com/VictorKildahl/cra/releases/latest/download/$asset}"
   local dir="${CRA_INSTALL_DIR:-}"
 
-  [ "$(sw_vers -productVersion | cut -d. -f1)" -ge 14 ] || fail "Cra needs macOS 14 Sonoma or later."
+  [ "$(sw_vers -productVersion | cut -d. -f1)" -ge 13 ] || fail "Cra needs macOS 13 Ventura or later."
 
   if [ -z "$dir" ]; then
     if [ -w /Applications ]; then dir=/Applications; else dir="$HOME/Applications"; fi

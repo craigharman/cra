@@ -1,6 +1,6 @@
 import AppKit
 import Foundation
-import Observation
+import Perception
 #if canImport(FoundationModels)
 import FoundationModels
 #endif
@@ -9,7 +9,7 @@ import FoundationModels
 /// renamePinnedTabs). The name becomes the tab's custom title, as in Arc, and the row plays Arc's
 /// rename (TabRowView.playTidyRename): the old title sweeps into the new one with sparkles, and
 /// "Double-click to rename" shows under it for a few seconds.
-@MainActor @Observable
+@MainActor @Perceptible
 final class TidyTitlesService {
     static let shared = TidyTitlesService()
 
@@ -31,7 +31,7 @@ final class TidyTitlesService {
     static let subtitleShown: TimeInterval = 3.65
     static let subtitle = "Double-click to rename"
 
-    @ObservationIgnored private var pending: Set<UUID> = []
+    @PerceptionIgnored private var pending: Set<UUID> = []
 
     private init() {}
 

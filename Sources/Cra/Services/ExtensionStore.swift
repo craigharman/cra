@@ -1,13 +1,13 @@
 import AppKit
 import CraCEF
 import CryptoKit
-import Observation
+import Perception
 
 /// Unpacked Chrome extensions, one folder each, loaded at start-up with
 /// --load-extension by the Chrome-style page windows, plus the ones Chrome installed
 /// into Cra's profile itself (Chrome Web Store, chrome://extensions "Load unpacked").
 @MainActor
-@Observable
+@Perceptible
 final class ExtensionStore {
     struct Entry: Identifiable, Hashable {
         let id: String          // folder name
@@ -224,7 +224,7 @@ final class ExtensionStore {
 
     /// Web Store copies whose store install was live this session ("<profile>/<id>"). The copy
     /// keeps its folder until the next launch, when the store install is on disk.
-    @ObservationIgnored private var liveStoreInstalls: Set<String> = []
+    @PerceptionIgnored private var liveStoreInstalls: Set<String> = []
 
     /// A store install seen this session that has left its profile's live settings was removed
     /// (chrome://extensions deletes an INTERNAL extension's entry), so its copy stops loading
@@ -263,7 +263,7 @@ final class ExtensionStore {
     }
 
     /// Extension IDs asked of the store in a profile this session ("<profile>/<id>"), each once.
-    @ObservationIgnored private var webStoreAsked: Set<String> = []
+    @PerceptionIgnored private var webStoreAsked: Set<String> = []
 
     /// A page in `profile` has loaded, so the profile's extensions are up: its Web Store copies
     /// are installed from the store there (Cra.installFromWebStore, the store's own install).
@@ -558,7 +558,7 @@ final class ExtensionStore {
     }()
     /// One image per extension, so the toolbar sees the same object until the style or the
     /// image it was made from changes.
-    @ObservationIgnored private var toolbarIcons: [String: (base: NSImage?, image: NSImage?)] = [:]
+    @PerceptionIgnored private var toolbarIcons: [String: (base: NSImage?, image: NSImage?)] = [:]
 
     func iconStyle(_ id: String) -> IconStyle { iconStyles[id] ?? IconStyle() }
 
@@ -627,7 +627,7 @@ final class ExtensionStore {
     /// (ExtensionActions forwards Extensions.actionUpdated).
     private(set) var actions = ExtensionActionStates()
     /// Decoded icons by their PNG bytes, so a redraw sees the same image until the icon changes.
-    @ObservationIgnored private var actionIcons: [Data: NSImage] = [:]
+    @PerceptionIgnored private var actionIcons: [Data: NSImage] = [:]
 
     func applyActionUpdate(_ update: ExtensionActionUpdate, tab: UUID?) {
         var next = actions
@@ -686,7 +686,7 @@ final class ExtensionStore {
     }
 
     /// Recent badged icons, so a redraw sees the same image until icon, badge or ink change.
-    @ObservationIgnored private var badgedIcons: [(icon: NSImage, badge: ExtensionBadge, tint: NSColor, image: NSImage)] = []
+    @PerceptionIgnored private var badgedIcons: [(icon: NSImage, badge: ExtensionBadge, tint: NSColor, image: NSImage)] = []
 
     /// `icon` with `badge` drawn into it the way Chromium does (IconWithBadgeImageSource): a ring
     /// cut out of the icon, then the badge. The buttons draw the result as is, so a template icon

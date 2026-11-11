@@ -188,7 +188,7 @@ struct ChangeProfileDialog: View {
                     .frame(height: 27)
                     .background(Color(hex: "#2E36E7"), in: RoundedRectangle(cornerRadius: 4, style: .continuous))
                     .background(GeometryReader { g in Color.clear.onAppear { pill = g.frame(in: .global) }
-                        .onChange(of: g.frame(in: .global)) { _, f in pill = f } })
+                        .onChange(of: g.frame(in: .global)) { f in pill = f } })
                 }
                 .buttonStyle(.plain)
                 .fixedSize()

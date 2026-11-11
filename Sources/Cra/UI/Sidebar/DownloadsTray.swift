@@ -1,3 +1,4 @@
+import Perception
 import AppKit
 import UniformTypeIdentifiers
 
@@ -48,7 +49,7 @@ final class DownloadsTrayView: NSView {
     override var isFlipped: Bool { true }
 
     private func observe() {
-        let (entries, open, _) = withObservationTracking {
+        let (entries, open, _) = withPerceptionTracking {
             (DownloadHistory.shared.recent, ui.downloadsListOpen, DownloadHistory.shared.thumbnails.count)
         } onChange: { [weak self] in
             Task { @MainActor in self?.observe() }

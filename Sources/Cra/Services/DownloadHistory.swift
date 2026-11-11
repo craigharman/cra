@@ -1,6 +1,6 @@
 import AppKit
 import CraCEF
-import Observation
+import Perception
 import QuickLookThumbnailing
 
 /// Finished downloads, newest last, for the list Arc shows when you hover the Library
@@ -9,7 +9,7 @@ import QuickLookThumbnailing
 /// in both too (`live`, not saved): Arc shows progress and failures there, not in a toast. Which
 /// rows each list shows is `DownloadList` (CraCore).
 @MainActor
-@Observable
+@Perceptible
 final class DownloadHistory {
     static let shared = DownloadHistory()
 
@@ -24,8 +24,8 @@ final class DownloadHistory {
     private(set) var entries: [Entry]
     /// Quick Look thumbnails by path, made on demand.
     private(set) var thumbnails: [String: NSImage] = [:]
-    @ObservationIgnored private let file = JSONStore<[Entry]>("downloads.json")
-    @ObservationIgnored private var loading: Set<String> = []
+    @PerceptionIgnored private let file = JSONStore<[Entry]>("downloads.json")
+    @PerceptionIgnored private var loading: Set<String> = []
 
     private init() {
         entries = file.load(or: { [] })
@@ -33,7 +33,7 @@ final class DownloadHistory {
 
     private(set) var live: [Live] = []
     /// When a download last stopped running (finished, failed or cancelled), for the bin.
-    @ObservationIgnored private(set) var lastEnded: Date?
+    @PerceptionIgnored private(set) var lastEnded: Date?
 
     /// The hover list: newest downloads, oldest first: files still on disk, and running, failed
     /// or cancelled ones.

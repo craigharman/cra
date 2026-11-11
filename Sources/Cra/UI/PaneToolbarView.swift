@@ -1,3 +1,4 @@
+import Perception
 import AppKit
 import SwiftUI
 
@@ -141,7 +142,7 @@ final class PaneToolbarView: NSView {
 
     private func sync() {
         syncQueued = false
-        let m = withObservationTracking { build() } onChange: { [weak self] in
+        let m = withPerceptionTracking { build() } onChange: { [weak self] in
             Task { @MainActor in self?.scheduleSync() }
         }
         guard m != model else { return }

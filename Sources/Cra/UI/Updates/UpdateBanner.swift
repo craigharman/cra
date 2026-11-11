@@ -1,3 +1,4 @@
+import Perception
 import AppKit
 
 /// Arc's software-update sidebar banners (SidebarBanner `updateAvailable` and `updateSummary`),
@@ -65,7 +66,7 @@ final class UpdateBannerView: NSView {
     override var isFlipped: Bool { true }
 
     private func observe() {
-        let kind = withObservationTracking { Self.kind } onChange: { [weak self] in
+        let kind = withPerceptionTracking { Self.kind } onChange: { [weak self] in
             Task { @MainActor in self?.observe() }
         }
         guard kind != shown else { return }

@@ -1,5 +1,5 @@
 import Foundation
-import Observation
+import Perception
 import SQLite3
 
 /// The production store and the Arc importer, booted through AppComposition with a manual
@@ -8,6 +8,14 @@ import SQLite3
 @main
 enum StoreTests {
     private static var checks = 0
+
+    // Keep the shipped-issue test body unchanged while using the same backported
+    // observation backend as SidebarStore on Ventura.
+    @discardableResult
+    private static func withObservationTracking<Value>(_ read: () -> Value,
+                                                       onChange: @escaping @Sendable () -> Void) -> Value {
+        withPerceptionTracking(read, onChange: onChange)
+    }
 
     @MainActor
     static func main() throws {
@@ -1829,7 +1837,7 @@ enum StoreTests {
         doc.spaces[0].profileID = gone
         b.replace(document: doc)
         expect(b.orderedSpaces[0].profileID == nil && b.integrityProblems().isEmpty, "a space on a missing profile falls back to Default")
-    
+
         iCloudSync(first: a, firstClock: clockA)
     }
 

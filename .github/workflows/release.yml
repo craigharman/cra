@@ -147,7 +147,7 @@ jobs:
           SIGNED: ${{ needs.build.outputs.signed == 'true' }}
         run: |
           NOTES="$RUNNER_TEMP/notes.md"
-          echo "Cra ${CRA_VERSION} for macOS 14 and later, on Apple silicon and Intel." > "$NOTES"
+          echo "Cra ${CRA_VERSION} for macOS 13 and later, on Apple silicon and Intel." > "$NOTES"
           echo >> "$NOTES"
           # Unsigned builds stay regular releases: releases/latest (the website and
           # scripts/install.sh) skips pre-releases.

@@ -1,6 +1,6 @@
 import AppKit
 import Foundation
-import Observation
+import Perception
 #if canImport(FoundationModels)
 import FoundationModels
 #endif
@@ -9,7 +9,7 @@ import FoundationModels
 /// nothing leaves the Mac. Arc sent the same "id: title" list to its server (Arc Max). Without
 /// Apple Intelligence (an older macOS, a Mac that can't run it, or it is off) the Tidy button
 /// doesn't show at all. What the answer does to the sidebar is TidyTabs (CraCore) and the store.
-@MainActor @Observable
+@MainActor @Perceptible
 final class TidyTabsService {
     static let shared = TidyTabsService()
 
@@ -47,7 +47,7 @@ final class TidyTabsService {
     private(set) var status: Status = .needsNewerMacOS
     var modelAvailable: Bool { status == .available }
 
-    @ObservationIgnored private var activation: NSObjectProtocol?
+    @PerceptionIgnored private var activation: NSObjectProtocol?
 
     private init() {
         refresh()

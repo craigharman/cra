@@ -1,12 +1,12 @@
 import Foundation
-import Observation
+import Perception
 
 /// Every Boost (Arc's per-site restyles), in boosts.json in the data folder.
 @MainActor
-@Observable
+@Perceptible
 final class BoostStore {
     static let shared = BoostStore()
-    @ObservationIgnored private let file = JSONStore<[Boost]>("boosts.json")
+    @PerceptionIgnored private let file = JSONStore<[Boost]>("boosts.json")
     private(set) var boosts: [Boost]
 
     private init() { boosts = file.load(or: { [] }) }
@@ -39,5 +39,5 @@ final class BoostStore {
     }
 
     /// The pages on a host get their boost again (set by the app: BrowserManager re-applies).
-    @ObservationIgnored static var changed: ((String) -> Void)?
+    @PerceptionIgnored static var changed: ((String) -> Void)?
 }

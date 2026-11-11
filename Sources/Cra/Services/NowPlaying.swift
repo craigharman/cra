@@ -1,11 +1,11 @@
 import Foundation
-import Observation
+import Perception
 
 /// Arc's "now playing" player at the bottom of the sidebar (issue #33): every tab of the
 /// window that played sound since it loaded, oldest first. A tab stays listed while paused
 /// and leaves when it is dismissed, closes, sleeps, or navigates while quiet. The sidebar
 /// shows the ones that aren't on screen. Fed by BrowserManager.
-@MainActor @Observable
+@MainActor @Perceptible
 final class NowPlaying {
     struct Entry: Equatable, Identifiable {
         let id: UUID
@@ -25,7 +25,7 @@ final class NowPlaying {
     /// Tabs in the window's panes, and tabs whose video is in Picture in Picture: no card.
     var onScreen: Set<UUID> = []
     var pictureInPicture: Set<UUID> = []
-    @ObservationIgnored var perform: (UUID, Action) -> Void = { _, _ in }
+    @PerceptionIgnored var perform: (UUID, Action) -> Void = { _, _ in }
 
     /// Oldest first, as Arc stacks them (the newest is the front card).
     var shown: [Entry] { entries.filter { !onScreen.contains($0.id) && !pictureInPicture.contains($0.id) } }

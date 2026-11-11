@@ -1,3 +1,4 @@
+import Perception
 import AppKit
 import SwiftUI
 
@@ -67,7 +68,7 @@ final class TabSwitcherView: NSView {
     required init?(coder: NSCoder) { fatalError() }
 
     private func observe() {
-        let (items, selected, dark, highlight) = withObservationTracking {
+        let (items, selected, dark, highlight) = withPerceptionTracking {
             (switcher.items, switcher.selectedIndex, switcher.isDark, switcher.highlight)
         } onChange: { [weak self] in
             Task { @MainActor in self?.observe() }

@@ -1,3 +1,4 @@
+import Perception
 import AppKit
 import CraCEF
 import QuickLookThumbnailing
@@ -467,7 +468,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, BrowserM
 
     private func observeStore() {
         guard !isTornDown else { return }
-        withObservationTracking {
+        withPerceptionTracking {
             _ = store.revision
             _ = store.prefs
             _ = store.settings
@@ -596,7 +597,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, BrowserM
         return showing.first.map { $0.id != windowID } ?? false
     }
 
-    /// Runs on every page event (progress, title, favicon). An @Observable property notifies
+    /// Runs on every page event (progress, title, favicon). An @Perceptible property notifies
     /// on every assignment, equal or not, and every sidebar row reads some of these, so each
     /// one is assigned only when it changed.
     private func syncSidebarUI() {
@@ -2456,7 +2457,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, BrowserM
     /// the open pinned tab unloads and stays pinned, another pinned tab is archived.
     private func middleClickClose(_ id: UUID) {
         let group = sidebarUI.group(for: id, in: store)
-        withAnimation(.snappy(duration: 0.22, extraBounce: 0)) {
+        withAnimation(.easeOut(duration: 0.22)) {
             if group.count == 1, store.isPinned(id), selectedTabID != id {
                 store.archiveTab(id, reason: .manual)
             } else {
@@ -3473,7 +3474,9 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, BrowserM
         positionCommandPanel()
         if commandPanel.parent == nil { window.addChildWindow(commandPanel, ordered: .above) }
         commandBarOpenedAt = Date()
-        if !HitchMonitor.background { NSApp.activate(ignoringOtherApps: true) }
+        if !HitchMonitor.background {
+            WithPerceptionTracking { NSApp.activate(ignoringOtherApps: true)     }
+        }
         // Key immediately (typing never waits); CommandBarView fades itself in.
         commandPanel.makeKeyAndOrderFront(nil)
         observeCommandBar()
@@ -3482,7 +3485,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, BrowserM
     private func observeCommandBar() {
         guard !commandObserving else { return }
         commandObserving = true
-        withObservationTracking {
+        withPerceptionTracking {
             _ = commandBar.rowPlaces
             _ = commandBar.isOpen
         } onChange: { [weak self] in

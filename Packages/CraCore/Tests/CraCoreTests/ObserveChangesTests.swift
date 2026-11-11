@@ -1,9 +1,9 @@
 import CraCore
-import Observation
+import Perception
 import Testing
 
-/// SidebarStore in miniature: one @Observable stored property holding a settings struct.
-@Observable @MainActor
+/// SidebarStore in miniature: one @Perceptible stored property holding a settings struct.
+@Perceptible @MainActor
 private final class Store {
     var settings = Settings()
 }
@@ -27,7 +27,7 @@ struct ObserveChangesTests {
     @Test func plainTrackingFiresOnAnUnrelatedSettingsWrite() {
         final class Fired: @unchecked Sendable { var value = false }
         let store = Store(), fired = Fired()
-        _ = withObservationTracking { store.settings.httpsOnly } onChange: { fired.value = true }
+        _ = withPerceptionTracking { store.settings.httpsOnly } onChange: { fired.value = true }
         store.settings.sidebarWidth = 300
         #expect(fired.value)
     }

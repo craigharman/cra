@@ -1,3 +1,4 @@
+import Perception
 import AppKit
 import SwiftUI
 
@@ -131,7 +132,7 @@ final class CommandBarView: NSView {
 
     private func sync() {
         syncQueued = false
-        withObservationTracking { apply() } onChange: { [weak self] in
+        withPerceptionTracking { apply() } onChange: { [weak self] in
             Task { @MainActor in self?.scheduleSync() }
         }
     }
@@ -450,16 +451,18 @@ private struct CommandBarSplash: View {
     @State private var opacity: Double = 1
 
     var body: some View {
-        color
-            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-            .padding(margin)
-            .blur(radius: blurRadius, opaque: false)
-            .opacity(opacity)
-            .animation(.easeOut(duration: 1.2), value: blurRadius)
-            .onAppear {
-                blurRadius = 150
-                opacity = 0
-            }
+        WithPerceptionTracking {
+            color
+                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .padding(margin)
+                .blur(radius: blurRadius, opaque: false)
+                .opacity(opacity)
+                .animation(.easeOut(duration: 1.2), value: blurRadius)
+                .onAppear {
+                    blurRadius = 150
+                    opacity = 0
+                }
+        }
     }
 }
 

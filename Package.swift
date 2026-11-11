@@ -26,7 +26,7 @@ let sparkleRoot = "\(Context.packageDirectory)/vendor/sparkle"
 
 let package = Package(
     name: "Cra",
-    platforms: [.macOS(.v14)],
+    platforms: [.macOS(.v13)],
     products: [
         .executable(name: "Cra", targets: ["Cra"]),
         .executable(name: "CraHelper", targets: ["CraHelper"]),
@@ -36,7 +36,10 @@ let package = Package(
         .library(name: "CraDockTile", type: .dynamic, targets: ["CraDockTile"]),
     ],
     // Models and decisions that need no AppKit or CEF, with tests that run without vendor/cef.
-    dependencies: [.package(path: "Packages/CraCore")],
+    dependencies: [
+        .package(path: "Packages/CraCore"),
+        .package(url: "https://github.com/pointfreeco/swift-perception", exact: "2.0.12"),
+    ],
     targets: [
         .executableTarget(name: "CraPluginHost", path: "Sources/CraPluginHost",
                           linkerSettings: [.linkedFramework("JavaScriptCore")]),
@@ -75,7 +78,8 @@ let package = Package(
         // The browser itself: AppKit window, SwiftUI sidebar and command bar.
         .executableTarget(
             name: "Cra",
-            dependencies: ["CraCEF", .product(name: "CraCore", package: "CraCore")],
+            dependencies: ["CraCEF", .product(name: "CraCore", package: "CraCore"),
+                           .product(name: "Perception", package: "swift-perception")],
             path: "Sources/Cra",
             swiftSettings: [.unsafeFlags(["-F", sparkleRoot]), .unsafeFlags(["-Onone"], .when(configuration: .debug))],
             linkerSettings: [.unsafeFlags(["-F", sparkleRoot, "-framework", "Sparkle",

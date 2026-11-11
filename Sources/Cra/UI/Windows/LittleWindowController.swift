@@ -1,3 +1,4 @@
+import Perception
 import AppKit
 import CraCEF
 import SwiftUI
@@ -15,7 +16,7 @@ import SwiftUI
 /// Arc 1.172.1 (10 Nov 2026) changed the strip's colour, the pill's address and the "Open in"
 /// menu's sizes; those come from its captures (#329, #330, #331).
 @MainActor
-@Observable
+@Perceptible
 final class LittleWindowState {
     var url = ""
     var title = ""
@@ -866,7 +867,7 @@ final class LittleWindowController: NSWindowController, NSWindowDelegate, @preco
     private func observeCommandBar() {
         guard !commandObserving else { return }
         commandObserving = true
-        withObservationTracking {
+        withPerceptionTracking {
             _ = commandBar.rowPlaces
             _ = commandBar.isOpen
         } onChange: { [weak self] in
@@ -1990,7 +1991,7 @@ final class LittleToolbarView: NSView {
     override var isFlipped: Bool { true }
 
     private func observe() {
-        let (url, hover, popupOpen, space, spaces, profile, waiting) = withObservationTracking {
+        let (url, hover, popupOpen, space, spaces, profile, waiting) = withPerceptionTracking {
             (state.url, state.hover, state.popupOpen, store.space(state.targetSpaceID) ?? store.focusedSpace, store.spaceOrder.count,
              // Arc's shouldShowProfileIndicators: only once there is a profile besides Default.
              store.profiles.isEmpty ? nil : store.profile(state.profileID)?.name ?? "Default", state.awaitsFirstResponse)

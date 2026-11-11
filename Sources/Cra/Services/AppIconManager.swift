@@ -1,5 +1,5 @@
 import AppKit
-import Observation
+import Perception
 import UniformTypeIdentifiers
 
 /// The app icon picked in Settings ▸ General: the bundled Segments icon, one of the
@@ -9,7 +9,7 @@ import UniformTypeIdentifiers
 /// quits. The plug-in runs in the Dock's process, so the choice lives in Cra's defaults
 /// (which it reads) rather than settings.json under the data folder (which it can't find).
 @MainActor
-@Observable
+@Perceptible
 final class AppIconManager {
     static let shared = AppIconManager()
 
