@@ -142,7 +142,7 @@ final class CaptureView: NSView {
     private var lensVelocity = [CGFloat](repeating: 0, count: 4)
     private var lensAlpha: CGFloat = 0
     private var lensAlphaTarget: CGFloat = 0
-    private var link: CADisplayLink?
+    private var link: (any FrameTicker)?
     private var lastStep: CFTimeInterval = 0
 
     // The picker: one question at a time, the latest point waiting.
@@ -587,13 +587,11 @@ final class CaptureView: NSView {
 
     private func run() {
         guard link == nil else { return }
-        let l = displayLink(target: self, selector: #selector(step))
-        l.add(to: .main, forMode: .common)
-        link = l
+        link = startFrameTicker(target: self, selector: #selector(step))
         lastStep = CACurrentMediaTime()
     }
 
-    @objc private func step(_ l: CADisplayLink) {
+    @objc private func step(_ l: any FrameTicker) {
         let now = CACurrentMediaTime()
         let elapsed = min(now - lastStep, 1.0 / 30)
         var dt = elapsed

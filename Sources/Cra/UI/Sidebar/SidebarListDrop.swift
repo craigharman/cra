@@ -133,7 +133,7 @@ final class CombineDropPreview: NSView {
 
     /// `withAnimation(.spring(duration: 0.34, bounce: 0.22)) { open = true }` on appear.
     private static func spring(_ layer: CALayer?, _ key: String, from: Any, to: Any) {
-        let a = CASpringAnimation(perceptualDuration: 0.34, bounce: 0.22)
+        let a = CASpringAnimation.perceptual(duration: 0.34, bounce: 0.22)
         a.keyPath = key
         a.fromValue = from
         a.toValue = to

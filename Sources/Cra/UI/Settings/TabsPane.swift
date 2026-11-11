@@ -96,8 +96,8 @@ struct TabsPane: View {
                                       detail: "Today tabs you haven’t opened for a while move to the archive. Pinned tabs and Favorites stay.",
                                       isOn: $store.settings.autoArchiveEnabled) {
                         SettingsInlinePicker(label: "After", selection: $store.settings.autoArchive, enabled: store.settings.autoArchiveEnabled) {
-                            ForEach(AutoArchiveThreshold.allCases) {
-                                WithPerceptionTracking { Text($0.label).tag($0)     }
+                            ForEach(AutoArchiveThreshold.allCases) { item in
+                                WithPerceptionTracking { Text(item.label).tag(item) }
                             }
                         }
                     }
@@ -107,8 +107,8 @@ struct TabsPane: View {
                                       detail: "A tab you haven’t used for a while is forced out of memory and reloads when you open it.",
                                       isOn: $store.settings.tabSleepTimerEnabled) {
                         SettingsInlinePicker(label: "After", selection: $store.settings.tabSleepAfter, enabled: store.settings.tabSleepTimerEnabled) {
-                            ForEach(TabSleepThreshold.allCases) {
-                                WithPerceptionTracking { Text($0.label).tag($0)     }
+                            ForEach(TabSleepThreshold.allCases) { item in
+                                WithPerceptionTracking { Text(item.label).tag(item) }
                             }
                         }
                     }

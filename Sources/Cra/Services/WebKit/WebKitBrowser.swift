@@ -140,7 +140,7 @@ final class WebKitBrowser: CraBrowser, WKNavigationDelegate, WKUIDelegate, WKDow
         web.uiDelegate = self
         web.allowsBackForwardNavigationGestures = true
         web.allowsMagnification = true
-        web.isInspectable = true
+        if #available(macOS 13.3, *) { web.isInspectable = true }
         container.addSubview(web)
         webView = web
         created = true

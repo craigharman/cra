@@ -223,8 +223,8 @@ struct SettingsSidebar: View {
     var body: some View {
         WithPerceptionTracking {
             VStack(spacing: 0) {
-                ForEach(SettingsPane.allCases) {
-                    WithPerceptionTracking { row($0)     }
+                ForEach(SettingsPane.allCases) { item in
+                    WithPerceptionTracking { row(item) }
                 }
                 Spacer(minLength: 0)
             }

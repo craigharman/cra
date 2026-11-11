@@ -30,8 +30,8 @@ struct LinksPane: View {
                     SettingsPlainRow("Archive Little Windows",
                                      detail: "A Little Window you leave alone closes into the archive, where you can find it again.") {
                         Picker("Archive Little Windows after", selection: $store.settings.littleWindowArchiveAfter) {
-                            ForEach(LittleWindowArchive.allCases, id: \.self) {
-                                WithPerceptionTracking { Text($0.label).tag($0)     }
+                            ForEach(LittleWindowArchive.allCases, id: \.self) { item in
+                                WithPerceptionTracking { Text(item.label).tag(item) }
                             }
                         }
                         .labelsHidden()

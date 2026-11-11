@@ -20,7 +20,7 @@ struct AirTrafficControlView: View {
                     Spacer(minLength: 8)
                     Button { addRoute() } label: { Text("New Route").frame(width: 94) }
                         .controlSize(.large)
-                        .buttonBorderShape(.roundedRectangle(radius: 6))
+                        .roundedButtonBorder(radius: 6)
                     Button { dismiss() } label: {
                         Image(systemName: "xmark").font(.system(size: 15, weight: .light)).frame(width: 32, height: 32).contentShape(Rectangle())
                     }
@@ -95,8 +95,8 @@ struct AirTrafficControlView: View {
                         .frame(width: 49, alignment: .leading)
                         .accessibilityLabel("Link URL")
                     Picker("Match", selection: binding(id, \.match)) {
-                        ForEach(LinkMatchStyle.allCases) {
-                            WithPerceptionTracking { Text($0.label).tag($0)     }
+                        ForEach(LinkMatchStyle.allCases) { item in
+                            WithPerceptionTracking { Text(item.label).tag(item) }
                         }
                     }
                     .labelsHidden()

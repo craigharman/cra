@@ -57,7 +57,7 @@ struct NewProfileDialog: View {
                 .font(.system(size: 14))
                 .foregroundStyle(Self.body)
                 .padding(.top, 20)
-            TextField("", text: $name, prompt: Text("Personal").foregroundStyle(Color(hex: "#9699A1")))
+            TextField("", text: $name, prompt: Text("Personal").foregroundColor(Color(hex: "#9699A1")))
                 .textFieldStyle(.plain)
                 .font(.system(size: 14))
                 .foregroundStyle(.white)

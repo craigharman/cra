@@ -24,7 +24,7 @@ final class SpacePagerView: NSView {
     private var pendingVelocity: Double = 0
     private var ownSettle: Int?
     private var spring: Spring?
-    private var link: CADisplayLink?
+    private var link: (any FrameTicker)?
 
     /// Dia's zero-bounce spring (CASpringAnimation perceptualDuration 0.4, bounce 0): critically
     /// damped, so the offset from the page is (x0 + (v0 + ω·x0)·t)·e^(−ω·t).
@@ -176,13 +176,11 @@ final class SpacePagerView: NSView {
         ownSettle = ui.beginSpaceSettle()
         guard window != nil else { finishSpring(); return }
         if link == nil {
-            let l = displayLink(target: self, selector: #selector(step))
-            l.add(to: .main, forMode: .common)
-            link = l
+            link = startFrameTicker(target: self, selector: #selector(step))
         }
     }
 
-    @objc private func step(_ link: CADisplayLink) {
+    @objc private func step(_ link: any FrameTicker) {
         guard let spring else { stopSpring(); return }
         let time = link.targetTimestamp
         let x = spring.offset(at: time)

@@ -877,9 +877,7 @@ final class ShellView: NSView {
                                     visible: visible, floating: floating, fullscreen: fullscreen)
         guard duration > 0, window != nil else { return finishSidebarSlide() }
         if sidebarSlideLink == nil {
-            let link = displayLink(target: self, selector: #selector(stepSidebarSlide))
-            link.add(to: .main, forMode: .common)
-            sidebarSlideLink = link
+            sidebarSlideLink = startFrameTicker(target: self, selector: #selector(stepSidebarSlide))
         }
         // A display link stops when the window leaves the screen; the slide still ends.
         let id = sidebarSlide!.start
@@ -895,9 +893,9 @@ final class ShellView: NSView {
     }
 
     private var sidebarSlide: SidebarSlide?
-    private var sidebarSlideLink: CADisplayLink?
+    private var sidebarSlideLink: (any FrameTicker)?
 
-    @objc private func stepSidebarSlide(_ link: CADisplayLink) {
+    @objc private func stepSidebarSlide(_ link: any FrameTicker) {
         guard let s = sidebarSlide else { return finishSidebarSlide() }
         let t = link.targetTimestamp - s.start
         guard t < s.duration else { return finishSidebarSlide() }

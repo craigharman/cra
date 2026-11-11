@@ -88,7 +88,7 @@ final class SidebarJumpPill: NSView {
             fade.toValue = 1
             fade.duration = 0.18
             layer.add(fade, forKey: "fade")
-            let move = CASpringAnimation(perceptualDuration: 0.32, bounce: 0.2)
+            let move = CASpringAnimation.perceptual(duration: 0.32, bounce: 0.2)
             move.keyPath = "sublayerTransform"
             move.fromValue = CATransform3DMakeTranslation(0, newEdge == .top ? -4 : 4, 0)
             move.toValue = CATransform3DIdentity

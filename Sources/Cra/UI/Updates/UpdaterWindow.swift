@@ -18,7 +18,7 @@ final class UpdaterWindowController: NSWindowController, NSWindowDelegate {
         let host = NSHostingController(rootView: UpdaterWindowView(updater: updater))
         host.sizingOptions = [.preferredContentSize]
         // Content runs under the transparent title bar, as in Arc.
-        host.safeAreaRegions = []
+        if #available(macOS 13.3, *) { host.safeAreaRegions = [] }
         let w = NSWindow(contentViewController: host)
         w.styleMask = [.titled, .closable, .miniaturizable, .fullSizeContentView]
         w.titlebarAppearsTransparent = true

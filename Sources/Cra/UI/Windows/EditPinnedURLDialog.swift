@@ -34,7 +34,7 @@ struct EditPinnedURLDialog: View {
                 .frame(width: 304, height: 35, alignment: .topLeading)
                 .padding(.top, 16)
                 .padding(.leading, 37.5)
-            TextField("", text: $text, prompt: Text("Enter a URL…").foregroundStyle(Color(hex: "#A6A8B0")))
+            TextField("", text: $text, prompt: Text("Enter a URL…").foregroundColor(Color(hex: "#A6A8B0")))
                 .textFieldStyle(.plain)
                 .font(.system(size: 14))
                 .foregroundStyle(.white)

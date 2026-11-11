@@ -472,7 +472,7 @@ final class PictureInPictureOverlayView: NSView {
     private var flight: PictureInPictureFlight?
     /// Runs while the fingers are on the window and while it flies: the window moves once per
     /// screen refresh, never straight from a scroll event.
-    private var link: CADisplayLink?
+    private var link: (any FrameTicker)?
     private var lastTick: CFTimeInterval = 0
     /// Where the pointer sits in the window while it rides along with the fingers.
     private var carried: CGVector?
@@ -547,9 +547,7 @@ final class PictureInPictureOverlayView: NSView {
 
     private func startLink() {
         guard link == nil else { return }
-        let l = displayLink(target: self, selector: #selector(tick(_:)))
-        l.add(to: .main, forMode: .common)
-        link = l
+        link = startFrameTicker(target: self, selector: #selector(tick(_:)))
         lastTick = 0
     }
 
@@ -558,7 +556,7 @@ final class PictureInPictureOverlayView: NSView {
         link = nil
     }
 
-    @objc private func tick(_ link: CADisplayLink) {
+    @objc private func tick(_ link: any FrameTicker) {
         let dt = lastTick == 0 ? link.targetTimestamp - link.timestamp : link.timestamp - lastTick
         lastTick = link.timestamp
         guard let target else { return stopLink() }

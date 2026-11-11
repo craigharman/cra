@@ -104,8 +104,8 @@ private struct SecureDNSRows: View {
                     Text("Automatic").tag(SecureDNSChoice.automatic)
                     Text("Off").tag(SecureDNSChoice.off)
                     Divider()
-                    ForEach(SecureDNSProvider.all) {
-                        WithPerceptionTracking { Text($0.name).tag(SecureDNSChoice.provider($0))     }
+                    ForEach(SecureDNSProvider.all) { item in
+                        WithPerceptionTracking { Text(item.name).tag(SecureDNSChoice.provider(item)) }
                     }
                     Divider()
                     Text("Custom…").tag(SecureDNSChoice.custom)

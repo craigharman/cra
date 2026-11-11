@@ -427,8 +427,8 @@ struct PersonalizationStep: View {
                     .offset(y: 228)
                 HStack(spacing: 12) {
                     // Settings ▸ Tabs ▸ Address Bar offers the same two (#305).
-                    ForEach(AddressBarPlacement.allCases, id: \.self) {
-                        WithPerceptionTracking { LayoutTile(placement: $0, model: model, c: c)     }
+                    ForEach(AddressBarPlacement.allCases, id: \.self) { item in
+                        WithPerceptionTracking { LayoutTile(placement: item, model: model, c: c) }
                     }
                 }
                 .offset(y: 252)

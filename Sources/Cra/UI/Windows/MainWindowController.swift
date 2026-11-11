@@ -45,7 +45,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, BrowserM
     /// Where the Library was sliding when the swipe caught it (LibrarySwipe.reveal's `toward`).
     private var librarySwipeToward: CGFloat?
     private var librarySettleSpring: (start: CFTimeInterval, from: CGFloat, velocity: CGFloat, target: CGFloat)?
-    private var librarySettleLink: CADisplayLink?
+    private var librarySettleLink: (any FrameTicker)?
     /// Shows the lists' overlay knob again once a swipe's scroller flash has faded.
     private var swipeKnobReveal: DispatchWorkItem?
     private var enteredFullscreenForContent = false
@@ -2667,13 +2667,11 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, BrowserM
     private func settleLibrary(from r: CGFloat, velocity: CGFloat, to target: CGFloat) {
         librarySettleSpring = (start: CACurrentMediaTime(), from: r, velocity: velocity, target: target)
         if librarySettleLink == nil {
-            let link = shell.displayLink(target: self, selector: #selector(stepLibrarySettle))
-            link.add(to: .main, forMode: .common)
-            librarySettleLink = link
+            librarySettleLink = shell.startFrameTicker(target: self, selector: #selector(stepLibrarySettle))
         }
     }
 
-    @objc private func stepLibrarySettle(_ link: CADisplayLink) {
+    @objc private func stepLibrarySettle(_ link: any FrameTicker) {
         guard let s = librarySettleSpring else { return stopLibrarySettle() }
         let t = CGFloat(link.targetTimestamp - s.start)
         if LibrarySwipe.isSettled(from: s.from, velocity: s.velocity, to: s.target, at: t, width: sidebarUI.libraryRevealWidth) {
@@ -3474,9 +3472,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, BrowserM
         positionCommandPanel()
         if commandPanel.parent == nil { window.addChildWindow(commandPanel, ordered: .above) }
         commandBarOpenedAt = Date()
-        if !HitchMonitor.background {
-            WithPerceptionTracking { NSApp.activate(ignoringOtherApps: true)     }
-        }
+        if !HitchMonitor.background { NSApp.activate(ignoringOtherApps: true) }
         // Key immediately (typing never waits); CommandBarView fades itself in.
         commandPanel.makeKeyAndOrderFront(nil)
         observeCommandBar()

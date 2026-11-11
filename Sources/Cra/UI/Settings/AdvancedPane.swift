@@ -203,8 +203,8 @@ private struct SearchEnginePicker: View {
     var body: some View {
         WithPerceptionTracking {
             Picker("Search engine", selection: Binding(get: { selected }, set: pick)) {
-                ForEach(engines, id: \.keyword) {
-                    WithPerceptionTracking { Text($0.name).tag($0.keyword)     }
+                ForEach(engines, id: \.keyword) { item in
+                    WithPerceptionTracking { Text(item.name).tag(item.keyword) }
                 }
             }
             .labelsHidden()

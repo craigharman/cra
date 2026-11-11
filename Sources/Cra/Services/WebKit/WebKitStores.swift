@@ -20,7 +20,14 @@ enum WebKitStores {
         }
         let key = profileKey(profilePath)
         if let s = persistent[key] { return s }
-        let s = WKWebsiteDataStore(forIdentifier: identifier(forProfileKey: key))
+        let s: WKWebsiteDataStore
+        if #available(macOS 14.0, *) {
+            s = WKWebsiteDataStore(forIdentifier: identifier(forProfileKey: key))
+        } else {
+            // Ventura has one persistent WebKit store per app: it goes to Default, and the other
+            // profiles get one in memory each, so they stay apart but forget it all on quit.
+            s = key == "Default" ? .default() : .nonPersistent()
+        }
         persistent[key] = s
         return s
     }
@@ -33,6 +40,7 @@ enum WebKitStores {
     static func removeProfile(folderName name: String) {
         let key = profileKey(AppPaths.chromiumCache.appendingPathComponent(name, isDirectory: true).path)
         persistent[key] = nil
+        guard #available(macOS 14.0, *) else { return }  // Ventura kept it in memory only
         WKWebsiteDataStore.remove(forIdentifier: identifier(forProfileKey: key)) { error in
             if let error { NSLog("Cra: removing WebKit data of %@ failed: %@", name, error.localizedDescription) }
         }

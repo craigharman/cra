@@ -297,7 +297,7 @@ private struct BoostEditorView: View {
                     square("lightbulb", on: model.boost.invert, help: "Invert lightness") { model.change { $0.invert.toggle() } }
                     square("slider.horizontal.3", on: showColors, help: "Advanced color controls") { showColors.toggle() }
                         .popover(isPresented: $showColors, arrowEdge: .leading) {
-                            WithPerceptionTracking { advanced     }
+                            WithPerceptionTracking { advanced }
                         }
                     square("nosign", on: false, help: "Reset to original colors") {
                         model.change { $0.hue = 0; $0.strength = 0; $0.invert = false; $0.contrast = 50; $0.brightness = 50; $0.saturation = 50 }
@@ -316,7 +316,7 @@ private struct BoostEditorView: View {
                     .menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden).help("Change text size")
                     Menu {
                         ForEach(Boost.TextCase.allCases, id: \.self) { c in
-                            WithPerceptionTracking { Button(c.title) { model.change { $0.textCase = c } }     }
+                            WithPerceptionTracking { Button(c.title) { model.change { $0.textCase = c } } }
                         }
                     } label: { wide("Case", trailing: nil) }
                     .menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden).help("Change text case")

@@ -19,9 +19,7 @@ struct PerformancePane: View {
         WithPerceptionTracking {
             @Perception.Bindable var store = store
             SettingsCardPane {
-                Picker("", selection: $section) { ForEach(Section.allCases, id: \.self) {
-                    WithPerceptionTracking { Text($0.rawValue).tag($0)     }
-                } }
+                Picker("", selection: $section) { ForEach(Section.allCases, id: \.self) { Text($0.rawValue).tag($0) } }
                     .pickerStyle(.segmented).labelsHidden().fixedSize()
                     .frame(maxWidth: .infinity)
                     .padding(.bottom, 16)

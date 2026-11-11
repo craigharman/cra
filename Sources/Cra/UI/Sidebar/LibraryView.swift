@@ -705,7 +705,7 @@ private final class LibraryListView: NSView, NSTextFieldDelegate, NSTableViewDat
         if filtering, hasFilter {
             let host = filterHost ?? NSHostingView(rootView: filterPanel())
             // The window's title bar is no inset here: the panel takes the search row's place.
-            host.safeAreaRegions = []
+            if #available(macOS 13.3, *) { host.safeAreaRegions = [] }
             host.rootView = filterPanel()
             if filterHost == nil { addSubview(host); filterHost = host }
         } else {

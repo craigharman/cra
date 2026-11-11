@@ -362,15 +362,15 @@ private struct ProgressStep: View {
                             GridItem(.fixed(ImportMetrics.card.width))]
                 VStack(alignment: .leading, spacing: 12) {
                     LazyVGrid(columns: cols, alignment: .leading, spacing: gap) {
-                        ForEach(model.categories) {
-                            WithPerceptionTracking { CategoryTile(category: $0, c: c, height: compact ? 52 : 64)     }
+                        ForEach(model.categories) { item in
+                            WithPerceptionTracking { CategoryTile(category: item, c: c, height: compact ? 52 : 64) }
                         }
                     }
                     // The notes follow the grid, so they never run into the tiles.
                     if model.finished {
                         VStack(alignment: .leading, spacing: 4) {
-                            ForEach(model.failures, id: \.self) {
-                                WithPerceptionTracking { Text($0).lineLimit(2)     }
+                            ForEach(model.failures, id: \.self) { item in
+                                WithPerceptionTracking { Text(item).lineLimit(2) }
                             }
                             if model.importedExtensionCount > 0 {
                                 Text("Cra restarts once to load your extensions. Their settings and sign-ins stay in \(model.source?.rawValue ?? "Arc").")

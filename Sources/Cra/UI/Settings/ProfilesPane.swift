@@ -99,7 +99,7 @@ struct ProfilesPane: View {
                     Menu("Open") {
                         Button("Default") { actions.openProfilePage(page.url, nil) }
                         ForEach(store.profiles) { p in
-                            WithPerceptionTracking { Button(p.name) { actions.openProfilePage(page.url, p.id) }     }
+                            WithPerceptionTracking { Button(p.name) { actions.openProfilePage(page.url, p.id) } }
                         }
                     }
                     .fixedSize()
@@ -208,7 +208,8 @@ struct ProfilesPane: View {
     }
 
     private func row<Trailing: View>(name: String, profileID: UUID?, @ViewBuilder trailing: () -> Trailing) -> some View {
-        WithPerceptionTracking {
+        let trailing = trailing()  // WithPerceptionTracking's closure escapes; the builder doesn't
+        return WithPerceptionTracking {
             let spaces = store.spaces(usingProfile: profileID)
             return SettingsCardRow {
                 VStack(alignment: .leading, spacing: 2) {
@@ -217,7 +218,7 @@ struct ProfilesPane: View {
                         .font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1)
                 }
             } trailing: {
-                HStack(spacing: 6) { trailing() }
+                HStack(spacing: 6) { trailing }
             }
         }
     }

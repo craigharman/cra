@@ -314,8 +314,8 @@ private struct WindowMock<Sidebar: View, Pane: View>: View {
                     .frame(width: sidebarWidth, alignment: .topLeading)
                     .padding(.top, 48)
                 HStack(spacing: 9) {
-                    ForEach(["#FF5F57", "#FEBC2E", "#28C840"], id: \.self) {
-                        WithPerceptionTracking { Circle().fill(Color(hex: $0)).frame(width: 13, height: 13)     }
+                    ForEach(["#FF5F57", "#FEBC2E", "#28C840"], id: \.self) { item in
+                        WithPerceptionTracking { Circle().fill(Color(hex: item)).frame(width: 13, height: 13) }
                     }
                 }
                 .offset(x: 19, y: 20)
@@ -324,8 +324,8 @@ private struct WindowMock<Sidebar: View, Pane: View>: View {
                     HStack(spacing: 2) {
                         Image(systemName: "sidebar.left").frame(width: 24)
                         Spacer()
-                        ForEach(["arrow.left", "arrow.right", "arrow.clockwise"], id: \.self) {
-                            WithPerceptionTracking { Image(systemName: $0).frame(width: 24)     }
+                        ForEach(["arrow.left", "arrow.right", "arrow.clockwise"], id: \.self) { item in
+                            WithPerceptionTracking { Image(systemName: item).frame(width: 24) }
                         }
                     }
                     .font(.system(size: 13, weight: .regular))
@@ -338,7 +338,7 @@ private struct WindowMock<Sidebar: View, Pane: View>: View {
                     .fill(palette.isDark ? Color(white: 0.12) : .white)
                     .shadow(color: .black.opacity(0.12), radius: 3, y: 1)
                     .overlay(alignment: .topLeading) {
-                        WithPerceptionTracking { pane()     }
+                        WithPerceptionTracking { pane() }
                     }
                     .frame(width: 400, height: 500)
                     .offset(x: sidebarWidth + 6, y: 10)
@@ -504,9 +504,9 @@ private struct AddressPreview: View {
     private func navButtons(_ p: SpacePalette, ink: Color? = nil) -> some View {
         WithPerceptionTracking {
             HStack(spacing: 7) {
-                ForEach(["arrow.left", "arrow.right", "arrow.clockwise"], id: \.self) {
+                ForEach(["arrow.left", "arrow.right", "arrow.clockwise"], id: \.self) { item in
                     WithPerceptionTracking {
-                        Image(systemName: $0).font(.system(size: 10, weight: .medium)).foregroundStyle(ink.map { $0.opacity(0.45) } ?? p.textTertiary)
+                        Image(systemName: item).font(.system(size: 10, weight: .medium)).foregroundStyle(ink.map { $0.opacity(0.45) } ?? p.textTertiary)
                     }
                 }
             }
@@ -525,8 +525,8 @@ private struct ExtensionsPreview: View {
             let fill = colors.dark ? Color.white.opacity(0.08) : Color.black.opacity(0.05)
             VStack(alignment: .leading, spacing: 18) {
                 HStack(spacing: 8) {
-                    ForEach(picked.prefix(5)) {
-                        WithPerceptionTracking { ExtensionIcon(image: $0.icon, size: 16, c: colors)     }
+                    ForEach(picked.prefix(5)) { item in
+                        WithPerceptionTracking { ExtensionIcon(image: item.icon, size: 16, c: colors) }
                     }
                     Image(systemName: "puzzlepiece.extension").font(.system(size: 13)).foregroundStyle(colors.body)
                 }

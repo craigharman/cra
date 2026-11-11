@@ -37,7 +37,9 @@ if [ "$ARCH" = "$(uname -m)" ]; then
 else
   CEF_DIR="vendor/cef-$ARCH"
   FINAL_APP="$ROOT/build/$ARCH/Cra.app"
-  SWIFT_ARGS=(-c "$CONFIG" --arch "$ARCH" --scratch-path "$ROOT/build/swiftpm-$ARCH")
+  # --triple, not --arch: --arch builds every product (macro plugins too) for $ARCH only,
+  # so PerceptionMacros never gets a host build and can't run during compilation.
+  SWIFT_ARGS=(-c "$CONFIG" --triple "$ARCH-apple-macosx13.0" --scratch-path "$ROOT/build/swiftpm-$ARCH")
   export CRA_CEF_DIR="$ROOT/$CEF_DIR"  # read by Package.swift
 fi
 
