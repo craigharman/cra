@@ -14,9 +14,13 @@ name: Ventura sync
 #   secret SPARKLE_PRIVATE_KEY and variable SPARKLE_PUBLIC_KEY: this fork's update key pair.
 #   ventura-support as the default branch: schedules only run there.
 #
-# Upstream code (lint, tests) runs only in the test job, which has no secrets. The publish job
-# runs on a fresh machine, repeats the same merge without running anything from the repo, and
-# is the only one that sees SYNC_TOKEN.
+# After the merge, scripts/ventura-perceptify.py gives upstream's new views the port's
+# Perception rules (a second commit). The test job then lints, tests, builds the Intel app and
+# checks it targets macOS 13.
+#
+# Upstream code runs only in the test job, which has no secrets. The publish job runs on a
+# fresh machine, repeats the same merge and rules without running upstream's code, and is the
+# only one that sees SYNC_TOKEN.
 
 on:
   schedule:
@@ -85,6 +89,7 @@ jobs:
     runs-on: macos-26
     env:
       TAG: ${{ needs.find.outputs.tag }}
+      BASE: ${{ needs.find.outputs.base }}
       UPSTREAM_SHA: ${{ needs.find.outputs.upstream }}
     steps:
       - uses: actions/checkout@v7
@@ -109,11 +114,27 @@ jobs:
             exit 1
           fi
 
+      # The fork's copy from before the merge, never one that came with upstream's code.
+      - name: Ventura rules for upstream's new views
+        run: |
+          git show "$BASE:scripts/ventura-perceptify.py" > "$RUNNER_TEMP/perceptify.py"
+          python3 -I "$RUNNER_TEMP/perceptify.py" | tee -a "$GITHUB_STEP_SUMMARY"
+
       - name: Lint
         run: scripts/lint.py
 
       - name: Tests
         run: scripts/test.sh
+
+      # What release.yml builds, so a release that can't build for macOS 13 never gets tagged.
+      # No cache: this job runs upstream's code, and release.yml restores caches.
+      - name: Build the Intel app
+        run: CRA_ARCH=x86_64 scripts/build.sh
+
+      - name: Check it targets macOS 13
+        run: |
+          git show "$BASE:scripts/verify-ventura-bundle.py" > "$RUNNER_TEMP/verify.py"
+          python3 -I "$RUNNER_TEMP/verify.py" build/x86_64/Cra.app
 
   publish:
     name: Push and tag (starts release.yml)
@@ -124,7 +145,7 @@ jobs:
       BASE: ${{ needs.find.outputs.base }}
       UPSTREAM_SHA: ${{ needs.find.outputs.upstream }}
     steps:
-      # Nothing from the repo runs in this job: checkout, merge and push only.
+      # Nothing from upstream runs in this job: checkout, merge, the fork's own rules script, push.
       - uses: actions/checkout@v7
         with:
           ref: ventura-support
@@ -136,7 +157,10 @@ jobs:
           git fetch --no-tags "$UPSTREAM" "$TAGS"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git show "$BASE:scripts/ventura-perceptify.py" > "$RUNNER_TEMP/perceptify.py"
           git merge -X ignore-space-change --no-edit -m "Merge upstream $TAG" "$UPSTREAM_SHA"
+          python3 -I "$RUNNER_TEMP/perceptify.py"
+          git diff --quiet || git commit -qam "Ventura: Perception rules for $TAG's new views"
           git push origin HEAD:ventura-support
           git tag "$TAG"
           git push origin "refs/tags/$TAG"

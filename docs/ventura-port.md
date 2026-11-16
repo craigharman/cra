@@ -75,25 +75,31 @@ Run launch smoke tests, and confirm no Perception tracking warnings appear in a
 debug session. Test updates separately with an isolated update feed; a custom
 Ventura build must not replace itself with an upstream Sonoma-only release.
 
-## GitHub fork and build workflow
+## Releases: following upstream automatically
 
-Fork: https://github.com/craigharman/cra
+Fork: https://github.com/craigharman/cra, default branch `ventura-support`.
 
-The `Ventura backport` workflow runs on pushes to `ventura-support` and supports
-manual runs once the workflow is registered by GitHub. It uses `macos-15-intel`
-with Xcode 16.4. Separate jobs run the tests and build the app, so a test failure
-still leaves build diagnostics available. No signing secrets or release writes
-are required. An initial fork may require enabling Actions in its Actions tab.
+`.github/workflows/ventura-sync.yml` checks VictorKildahl/cra once a day for a new `vX.Y.Z`
+tag. It merges the tag into `ventura-support` (`-X ignore-space-change`), runs
+`scripts/ventura-perceptify.py` so upstream's new views follow the rules above, then lints,
+tests, builds the Intel app and checks it with `scripts/verify-ventura-bundle.py`. When all of
+that passes it pushes, and tags the same version here, which starts `release.yml`. A conflict
+or a failure pushes nothing; the run's summary says what to fix.
 
-The build verifies the ad-hoc signature and checks that every bundled Mach-O
-binary contains Intel code and targets macOS 13.0 or earlier. The artifact
-`Cra-Ventura-Intel` contains an app ZIP and SHA-256 checksum. It is experimental,
-ad-hoc signed and not notarized. This workflow does not publish a GitHub release,
-run the app, or access your real browser profile. Its run is not a Ventura runtime
-test; the hosted machine runs a newer macOS.
+Rules that keep that merge clean:
 
-The development build disables the upstream update feed. On Ventura, extract
-the downloaded app and start it with an isolated profile:
+- Lines inside `WithPerceptionTracking { }` keep upstream's indentation. Re-indenting them
+  would make every upstream edit to those views a conflict.
+- A new Ventura rule goes in `scripts/ventura-perceptify.py`, not in a hand edit, so the next
+  release gets it too. `scripts/ventura-perceptify.py --check` lists files it would change.
+- Releases built here read this fork's update feed (`scripts/build.sh`, `GITHUB_REPOSITORY`)
+  and its own Sparkle key (`SPARKLE_PUBLIC_KEY` variable, `SPARKLE_PRIVATE_KEY` secret), so a
+  Ventura copy never updates itself to an upstream build that needs macOS 14.
+
+Upstream's scheduled workflows (Nightly, CEF updates, Ideas housekeeping) are disabled in the
+fork's Actions settings.
+
+For runtime testing on Ventura, use a separate profile:
 
 ```sh
 CRA_DATA_DIR=/tmp/cra-ventura-test-profile /path/to/Cra.app/Contents/MacOS/Cra

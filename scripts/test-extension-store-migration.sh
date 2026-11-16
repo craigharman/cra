@@ -4,7 +4,7 @@ cd "$(dirname "$0")/.."
 source scripts/perception-test-flags.sh
 TEST_DIR="$(mktemp -d "${TMPDIR:-/tmp}/cra-extension-migration.XXXXXX")"
 trap 'rm -rf "$TEST_DIR"' EXIT
-xcrun swiftc -swift-version 5 -emit-module -emit-library -module-name CraCEF \
+xcrun swiftc -swift-version 5 -target "$CRA_TEST_TARGET" -emit-module -emit-library -module-name CraCEF \
   Tests/ExtensionStoreSupport/CraCEF.swift -o "$TEST_DIR/libCraCEF.dylib" \
   -emit-module-path "$TEST_DIR/CraCEF.swiftmodule"
 xcrun swiftc -swift-version 5 -parse-as-library ${CRA_TEST_SWIFTC_FLAGS:-} "${CRA_PERCEPTION_SWIFTC_FLAGS[@]}" \
@@ -15,6 +15,7 @@ xcrun swiftc -swift-version 5 -parse-as-library ${CRA_TEST_SWIFTC_FLAGS:-} "${CR
   Packages/CraCore/Sources/CraCore/PinnedExtensions.swift \
   Packages/CraCore/Sources/CraCore/ExtensionActionState.swift \
   Packages/CraCore/Sources/CraCore/ExtensionBadge.swift \
+  Packages/CraCore/Sources/CraCore/ExtensionIcons.swift \
   Packages/CraCore/Sources/CraCore/ExtensionProxyControl.swift \
   Sources/Cra/Services/Import/ExtensionImporter.swift Sources/Cra/Services/ExtensionStore.swift \
   Tests/ExtensionStoreSupport/AppServices.swift Tests/ExtensionStoreMigrationTests.swift \

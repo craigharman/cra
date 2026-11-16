@@ -4,7 +4,7 @@ cd "$(dirname "$0")/.."
 source scripts/perception-test-flags.sh
 TEST_DIR="$(mktemp -d "${TMPDIR:-/tmp}/cra-capture-tests.XXXXXX")"
 trap 'rm -rf "$TEST_DIR"' EXIT
-xcrun swiftc -swift-version 5 -emit-module -emit-library -module-name CraCEF \
+xcrun swiftc -swift-version 5 -target "$CRA_TEST_TARGET" -emit-module -emit-library -module-name CraCEF \
   Tests/BrowserManagerSupport/CraCEF.swift -o "$TEST_DIR/libCraCEF.dylib" \
   -emit-module-path "$TEST_DIR/CraCEF.swiftmodule"
 xcrun swiftc -swift-version 5 -parse-as-library ${CRA_TEST_SWIFTC_FLAGS:-} "${CRA_PERCEPTION_SWIFTC_FLAGS[@]}" -I "$TEST_DIR" -L "$TEST_DIR" -lCraCEF \
@@ -14,6 +14,7 @@ xcrun swiftc -swift-version 5 -parse-as-library ${CRA_TEST_SWIFTC_FLAGS:-} "${CR
   Sources/Cra/Services/Persistence.swift Sources/Cra/Services/CraLog.swift Sources/Cra/Services/PageScript.swift \
   Sources/Cra/UI/Windows/CaptureOverlay.swift Sources/Cra/UI/Windows/MainWindowController+Capture.swift \
   Sources/Cra/UI/Windows/LittleWindowController+Capture.swift \
+  Sources/Cra/UI/VenturaCompat.swift \
   Tests/CaptureOverlaySupport/AppServices.swift Tests/CaptureOverlayTests.swift -o "$TEST_DIR/capture-tests"
 CRA_DATA_DIR="$TEST_DIR/data" "$TEST_DIR/capture-tests"
 [ -z "${CRA_TEST_KEEP:-}" ] || cp "$TEST_DIR/capture-tests" "$CRA_TEST_KEEP/"

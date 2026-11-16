@@ -4,6 +4,7 @@ import plistlib
 import re
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 
@@ -32,7 +33,11 @@ def verify(app):
         if arch.returncode:
             failures.append(f'{relative}: missing Intel architecture: {arch.stderr.strip()}')
             continue
-        load = subprocess.run(['otool', '-arch', 'x86_64', '-l', str(path)], capture_output=True, text=True, check=True)
+        # otool reads "Name (Alerts)" as member Alerts of archive Name: look through a plain link.
+        with tempfile.TemporaryDirectory() as tmp:
+            link = Path(tmp) / 'binary'
+            link.symlink_to(path.resolve())
+            load = subprocess.run(['otool', '-arch', 'x86_64', '-l', str(link)], capture_output=True, text=True, check=True)
         # Match only the OS minimum command, not dylib compatibility/SDK versions.
         minima = re.findall(r'cmd LC_BUILD_VERSION\s+cmdsize \d+\s+platform \S+\s+minos ([\d.]+)', load.stdout)
         minima += re.findall(r'cmd LC_VERSION_MIN_MACOSX\s+cmdsize \d+\s+version ([\d.]+)', load.stdout)
