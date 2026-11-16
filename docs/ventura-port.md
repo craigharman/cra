@@ -96,6 +96,9 @@ Rules that keep that merge clean:
   and its own Sparkle key (`SPARKLE_PUBLIC_KEY` variable, `SPARKLE_PRIVATE_KEY` secret), so a
   Ventura copy never updates itself to an upstream build that needs macOS 14.
 
+The repository variable `CRA_ALLOW_OLD_CEF=1` lets `release.sh` ship the CEF upstream's
+release pinned even when a newer stable CEF exists; without it most releases stop there.
+
 Upstream's scheduled workflows (Nightly, CEF updates, Ideas housekeeping) are disabled in the
 fork's Actions settings.
 

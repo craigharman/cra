@@ -12,6 +12,8 @@ name: Ventura sync
 #                              GITHUB_TOKEN can't push upstream's workflow changes, and its tag
 #                              pushes don't start release.yml.
 #   secret SPARKLE_PRIVATE_KEY and variable SPARKLE_PUBLIC_KEY: this fork's update key pair.
+#   variable CRA_ALLOW_OLD_CEF=1: ship the CEF upstream's release pinned, even once a newer
+#                              stable CEF is out (building CEF is upstream's job).
 #   ventura-support as the default branch: schedules only run there.
 #
 # After the merge, scripts/ventura-perceptify.py gives upstream's new views the port's
