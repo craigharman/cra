@@ -99,6 +99,9 @@ jobs:
           CRA_GOOGLE_API_KEY: ${{ secrets.CRA_GOOGLE_API_KEY }}
           # Fork: the public half of SPARKLE_PRIVATE_KEY (repository variable).
           SPARKLE_PUBLIC_KEY: ${{ vars.SPARKLE_PUBLIC_KEY }}
+          # The repository variable CRA_ALLOW_OLD_CEF=1 ships the pinned CEF past release.sh's check
+          # (docs/release.md, "A release ships the newest CEF"). Delete the variable after the release.
+          CRA_ALLOW_OLD_CEF: ${{ vars.CRA_ALLOW_OLD_CEF }}
         run: scripts/release.sh
 
       # Fork: fail the release if any Intel binary needs a macOS newer than 13.

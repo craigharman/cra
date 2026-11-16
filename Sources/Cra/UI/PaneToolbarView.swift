@@ -39,6 +39,8 @@ final class PaneToolbarView: NSView {
         var protectedMedia: String?
         /// Chromium's translate state for the page (#310): the translate button.
         var translation: PageTranslation?
+        /// Pop-ups Chromium blocked on the page, not opened yet (#357): the blocked pop-ups button.
+        var blockedPopups = 0
         var fill = NSColor.clear
         var fg = NSColor.labelColor
         var fgDim = NSColor.secondaryLabelColor
@@ -179,6 +181,7 @@ final class PaneToolbarView: NSView {
         }
         m.protectedMedia = m.tabID.flatMap { ui.navState(for: $0).protectedMedia }
         m.translation = m.tabID.flatMap { ui.navState(for: $0).translation }
+        m.blockedPopups = m.tabID.map { ui.navState(for: $0).blockedPopups } ?? 0
         let extensions = ExtensionStore.shared
         let profile = item.map { store.profileDirectoryName(item: $0.id) }
             ?? store.profileDirectoryName(space: store.focusedSpaceID(window: ui.windowID))
@@ -249,11 +252,15 @@ final class PaneToolbarView: NSView {
     }
 
     private func glyph(_ key: String, _ symbol: String, help: String, enabled: Bool = true, width: CGFloat = 26, iconSize: CGFloat = 13,
-                       tint: NSColor? = nil, animated: Bool = false, action: @escaping (PaneToolbarView) -> Void) -> ToolbarGlyphButton {
+                       tint: NSColor? = nil, animated: Bool = false, history: BackForwardMenu.Direction? = nil,
+                       action: @escaping (PaneToolbarView) -> Void) -> ToolbarGlyphButton {
         let b = button(key) { ToolbarGlyphButton() }
         b.configure(symbol: symbol, image: nil, help: help, enabled: enabled, width: width, iconSize: iconSize, tint: tint ?? model.fgDim,
                     hover: model.hover, animated: animated)
         b.action = { [weak self] in if let self { action(self) } }
+        b.secondaryAction = history.map { direction in
+            { [weak self] view in if let self { self.actions.showBackForwardMenu(self.paneTabID, direction, view) } }
+        }
         return b
     }
 
@@ -278,7 +285,8 @@ final class PaneToolbarView: NSView {
         hairline.layer?.backgroundColor = m.hairline?.cgColor
         let bar = ToolbarComposition(kind: m.kind, inSplit: m.inSplit, sidebarVisible: m.sidebarVisible, focusedPane: m.focusedPane,
                                      hovered: m.hovered, canGoBack: m.canGoBack, canGoForward: m.canGoForward, isLoading: m.isLoading,
-                                     pinnedExtensions: m.pinned.map(\.id), translatable: m.translation?.offersTranslation == true)
+                                     pinnedExtensions: m.pinned.map(\.id), translatable: m.translation?.offersTranslation == true,
+                                     blockedPopups: m.blockedPopups > 0)
         // The no-tab bar and an empty pane show navigation that does nothing (Arc greys it out).
         let wide = m.kind == .noTab || m.kind == .emptyPane
         // Arc's right-hand boxes: 32 pt, 4 pt apart (layout); 28 pt edge to edge on the developer bar.
@@ -289,9 +297,11 @@ final class PaneToolbarView: NSView {
                 return glyph("toggle", "sidebar.left", help: m.sidebarVisible ? "Hide Sidebar (⌘S)" : "Show Sidebar (⌘S)",
                              width: 37, iconSize: 15.5) { $0.actions.toggleSidebar() }
             case .back(let enabled):
-                return glyph("back", "arrow.left", help: wide ? "" : "Go Back (⌘[)", enabled: enabled, width: 37, iconSize: 15) { if !wide { $0.navigate("goBack") } }
+                return glyph("back", "arrow.left", help: wide ? "" : "Go Back (⌘[)", enabled: enabled, width: 37, iconSize: 15,
+                             history: wide ? nil : .back) { if !wide { $0.navigate("goBack") } }
             case .forward(let enabled):
-                return glyph("forward", "arrow.right", help: wide ? "" : "Go Forward (⌘])", enabled: enabled, width: 37, iconSize: 15) { if !wide { $0.navigate("goForward") } }
+                return glyph("forward", "arrow.right", help: wide ? "" : "Go Forward (⌘])", enabled: enabled, width: 37, iconSize: 15,
+                             history: wide ? nil : .forward) { if !wide { $0.navigate("goForward") } }
             case .reload(let loading, let enabled):
                 return glyph("reload", loading ? "xmark" : "arrow.clockwise", help: enabled ? "Refresh (⌘R)" : "", enabled: enabled, width: 37,
                              iconSize: 15, animated: enabled) { if !wide { $0.navigate("reload") } }
@@ -319,6 +329,14 @@ final class PaneToolbarView: NSView {
                 }
                 b.menuProvider = { ExtensionStore.shared.entries.first { $0.extensionID == id }.map(ExtensionsMenu.iconMenu) }
                 return b
+            case .blockedPopups:
+                // Chrome's blocked pop-ups icon in the address bar: a window crossed out (#357).
+                let tab = m.tabID
+                return glyph("blockedPopups", "rectangle.on.rectangle.slash", help: BlockedPopups.buttonTitle(count: m.blockedPopups),
+                             width: rightBox, iconSize: 15) { bar in
+                    guard let tab else { return }
+                    bar.actions.showBlockedPopups(tab, bar.buttonFrameOnScreen("blockedPopups"))
+                }
             case .translate:
                 // Arc: `character.bubble`, filled on a translated page, "Translation Options" (#310).
                 let tab = m.tabID
@@ -544,6 +562,12 @@ final class PaneToolbarView: NSView {
                 self?.store.settings.toolbarShowsFullURL.toggle()
             }))
         }
+        // The page's own toolbar, not a split pane's or the developer bar: those never hide.
+        if ui.splitPaneIDs.count <= 1, model.kind == .normal {
+            let hides = ToolbarMenuAction.item("Automatically Hide Toolbar", { [weak self] in self?.store.settings.autoHideToolbar.toggle() })
+            hides.state = store.settings.autoHideToolbar ? .on : .off
+            menu.addItem(hides)
+        }
         menu.addItem(ToolbarMenuAction.item("Hide Toolbar", shortcut: "toggleToolbar", { [weak self] in self?.store.settings.showToolbar = false }))
         return menu
     }
@@ -606,6 +630,9 @@ final class ToolbarGlyphButton: NSView {
     var action: () -> Void = {}
     /// Right-click menu (a pinned extension's icon options).
     var menuProvider: (() -> NSMenu?)?
+    /// Right-click, ⌃-click or a held press (ButtonHold): Back and Forward's history (#416).
+    var secondaryAction: ((NSView) -> Void)?
+    private let hold = ButtonHold()
     private(set) var width: CGFloat = 26
     private let imageView = NSImageView()
     private var tip: ArcTooltipAnchorView?
@@ -698,6 +725,10 @@ final class ToolbarGlyphButton: NSView {
     override func mouseEntered(with event: NSEvent) { hovering = true }
     override func mouseExited(with event: NSEvent) { hovering = false }
     override func mouseDown(with event: NSEvent) {
+        if hold.down(event, enabled: enabled, secondary: secondaryAction.map { f in { [weak self] in if let self { f(self) } } }) {
+            contextClick = true
+            return
+        }
         contextClick = event.modifierFlags.contains(.control) && menuProvider != nil
         if contextClick, let menu = menuProvider?() { NSMenu.popUpContextMenu(menu, with: event, for: self) }
         if !contextClick, turnsOnPress, enabled { imageView.pressTurn(true) }
@@ -707,7 +738,12 @@ final class ToolbarGlyphButton: NSView {
     }
     override func mouseUp(with event: NSEvent) {
         if turnsOnPress { imageView.pressTurn(false) }
+        if hold.up() { return }
         if !contextClick, enabled, bounds.contains(convert(event.locationInWindow, from: nil)) { action() }
+    }
+    override func rightMouseDown(with event: NSEvent) {
+        guard enabled, let secondaryAction else { return super.rightMouseDown(with: event) }
+        secondaryAction(self)
     }
     override func menu(for event: NSEvent) -> NSMenu? { menuProvider?() }
 }
@@ -956,12 +992,19 @@ final class ToolbarURLButton: NSView, NSTextFieldDelegate {
     override func mouseUp(with event: NSEvent) {
         guard !contextClick, press.finish() else { return }
         switch region(at: event) {
-        case .copy: onCopy()
+        case .copy: copyFromGlyph()
         case .address: action()
         case .none: break
         }
     }
     override func menu(for event: NSEvent) -> NSMenu? { field == nil ? menuProvider?() : nil }
+
+    /// A click on the link glyph: Copy Current URL, and Arc's link → checkmark → link in its place.
+    /// ⇧⌘C and the address menu's Copy URL only show the toast, as in Arc (#361).
+    func copyFromGlyph() {
+        onCopy()
+        icon.playCopyCheck(glyphSize: 12)
+    }
 }
 
 /// Arc's developer-bar stripes (GitHub #42), measured on Arc 1.170 at 2x: white 2% bands at 45°

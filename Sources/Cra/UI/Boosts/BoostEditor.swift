@@ -19,6 +19,8 @@ final class BoostEditorController {
     /// What the editor does to the page beside it.
     struct PageActions {
         var zap: (Bool) -> Void
+        /// A shelf cell under the pointer dims the page (BoostZap).
+        var dim: (Bool) -> Void
         var pick: (Bool) -> Void
         var toggleDevTools: () -> Void
         var devToolsOpen: () -> Bool
@@ -100,6 +102,12 @@ final class BoostEditorController {
 
     var isOpen: Bool { panel != nil }
 
+    /// The boost being edited, for the Zap shelf.
+    var editing: BoostEditorModel? { model }
+
+    /// Zap ends (its page went to the back).
+    func stopZapping() { model?.finishZap() }
+
     /// The picker ends (its page went to the back).
     func stopPicking() { model?.finishPicking() }
 
@@ -110,7 +118,7 @@ final class BoostEditorController {
     func addZapped(_ selectors: [String]) {
         CraLog.note("zap kept \(selectors.count) selector\(selectors.count == 1 ? "" : "s")")
         guard let model, !selectors.isEmpty else { return }
-        model.change { b in b.zapped += selectors.filter { !b.zapped.contains($0) } }
+        model.change { b in for s in selectors { b.zap(s) } }
     }
 
     private func resize(width: CGFloat) {
@@ -137,9 +145,11 @@ final class BoostEditorModel {
     var showingCode = false
     var codeIsJS = false
     var zapping = false
+    /// The shelf cell under the pointer: the page dims and the hint offers to restore it.
+    var hoveredZap: Int? { didSet { if (hoveredZap == nil) != (oldValue == nil) { page.dim(hoveredZap != nil) } } }
     var picking = false
     var devToolsOpen = false
-    @PerceptionIgnored var page = BoostEditorController.PageActions(zap: { _ in }, pick: { _ in }, toggleDevTools: {}, devToolsOpen: { false }, reload: {})
+    @PerceptionIgnored var page = BoostEditorController.PageActions(zap: { _ in }, dim: { _ in }, pick: { _ in }, toggleDevTools: {}, devToolsOpen: { false }, reload: {})
     @PerceptionIgnored var onClose: () -> Void = {}
     @PerceptionIgnored var onWidth: (CGFloat) -> Void = { _ in }
 
@@ -176,7 +186,13 @@ final class BoostEditorModel {
         page.zap(zapping)
     }
 
-    func finishZap() { if zapping { zapping = false; page.zap(false) } }
+    func finishZap() { if zapping { hoveredZap = nil; zapping = false; page.zap(false) } }
+
+    /// A shelf cell's click (Arc: at once, no question).
+    func unzap(_ selector: String) {
+        hoveredZap = nil
+        change { $0.unzap(selector) }
+    }
 
     /// The eyedropper: outline elements on the page; a click offers their selectors.
     func togglePicker() {
@@ -224,7 +240,7 @@ private struct BoostEditorView: View {
         .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(BoostStyle.panel))
         .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
         .environment(\.colorScheme, .light)
-    }
+        }
     }
 
     /// The code panel's header is only Back and the CSS / JS switch, centred (Arc 1.172.1).
@@ -249,7 +265,7 @@ private struct BoostEditorView: View {
         } else {
             boostHeader
         }
-    }
+        }
     }
 
     private var boostHeader: some View {
@@ -267,6 +283,10 @@ private struct BoostEditorView: View {
                 Button("Reset all Edits") { model.resetAll() }
                 Button("Delete this Boost") { delete() }
                 Divider()
+                Button("Share Boost…") {
+                    BoostInstall.share(model.boost) { text in (NSApp.delegate as? AppDelegate)?.main?.showToast(text) }
+                }
+                .disabled(!BoostInstall.canShare(model.boost))
                 Button("All Boosts…") { NotificationCenter.default.post(name: .craShowBoostsLibrary, object: nil) }
             } label: {
                 HStack(spacing: 4) {
@@ -282,7 +302,7 @@ private struct BoostEditorView: View {
             .buttonStyle(.plain).foregroundStyle(model.history.isEmpty ? Color(white: 0.75) : BoostStyle.ink).disabled(model.history.isEmpty).help("Undo")
         }
         .frame(height: 40)
-    }
+        }
     }
 
     private var controls: some View {
@@ -296,9 +316,7 @@ private struct BoostEditorView: View {
             HStack(spacing: 10) {
                 square("lightbulb", on: model.boost.invert, help: "Invert lightness") { model.change { $0.invert.toggle() } }
                 square("slider.horizontal.3", on: showColors, help: "Advanced color controls") { showColors.toggle() }
-                        .popover(isPresented: $showColors, arrowEdge: .leading) {
-                            WithPerceptionTracking { advanced }
-                        }
+                    .popover(isPresented: $showColors, arrowEdge: .leading) { WithPerceptionTracking { advanced } }
                 square("nosign", on: false, help: "Reset to original colors") {
                     model.change { $0.hue = 0; $0.strength = 0; $0.invert = false; $0.contrast = 50; $0.brightness = 50; $0.saturation = 50 }
                 }
@@ -308,27 +326,29 @@ private struct BoostEditorView: View {
             HStack(spacing: 9) {
                 Menu {
                     ForEach([0.8, 0.9, 1, 1.1, 1.25, 1.5], id: \.self) { s in
-                            WithPerceptionTracking {
+                        WithPerceptionTracking {
                         Button(s == 1 ? "Original" : "\(Int(s * 100)) %") { model.change { $0.textScale = s } }
-                    }
                         }
+                    }
                 } label: { wide("Size", trailing: nil) }
                 .menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden).help("Change text size")
                 Menu {
-                        ForEach(Boost.TextCase.allCases, id: \.self) { c in
-                            WithPerceptionTracking { Button(c.title) { model.change { $0.textCase = c } } }
-                        }
+                    ForEach(Boost.TextCase.allCases, id: \.self) { c in WithPerceptionTracking { Button(c.title) { model.change { $0.textCase = c } } } }
                 } label: { wide("Case", trailing: nil) }
                 .menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden).help("Change text case")
             }
             .frame(width: 147)
-            Button { model.toggleZap() } label: { wide("Zap", trailing: "bolt.fill", on: model.zapping) }.buttonStyle(.plain)
+            // Arc 1.172.2: with something zapped the bolt gives way to the count.
+            Button { model.toggleZap() } label: {
+                wide("Zap", trailing: "bolt.fill", count: model.boost.zapped.count, on: model.zapping)
+            }
+            .buttonStyle(.plain).accessibilityLabel(model.boost.zapped.isEmpty ? "Zap" : "Zap, \(model.boost.zapped.count)")
                 .help("Click things on the page to hide them")
             Button { model.setCode(true) } label: { wide("Code", trailing: "curlybraces") }.buttonStyle(.plain)
             Spacer(minLength: 0)
         }
         .frame(width: 183)
-    }
+        }
     }
 
     private var advanced: some View {
@@ -340,7 +360,7 @@ private struct BoostEditorView: View {
         }
         .padding(18)
         .frame(width: 250)
-    }
+        }
     }
 
     private func slider(_ title: String, _ key: WritableKeyPath<Boost, Double>) -> some View {
@@ -349,7 +369,7 @@ private struct BoostEditorView: View {
             Text(title).font(.system(size: 13, weight: .medium))
             Slider(value: Binding(get: { model.boost[keyPath: key] }, set: { v in model.change { $0[keyPath: key] = v } }), in: 0...100)
         }
-    }
+        }
     }
 
     private var fonts: some View {
@@ -357,20 +377,20 @@ private struct BoostEditorView: View {
         let columns = Array(repeating: GridItem(.fixed(26), spacing: 1.5), count: 5)
         return LazyVGrid(columns: columns, spacing: 0) {
             ForEach(Boost.fonts.indices, id: \.self) { i in
-                    WithPerceptionTracking {
+                WithPerceptionTracking {
                 Button { model.change { $0.font = $0.font == i ? nil : i } } label: {
                     Text("Aa").font(.custom(Boost.fonts[i] == "-apple-system" ? "Helvetica Neue" : Boost.fonts[i], size: 13))
                         .foregroundStyle(model.boost.font == i ? Color.accentColor : BoostStyle.secondary)
                         .frame(width: 26, height: 26)
                 }
                 .buttonStyle(.plain)
+                }
             }
         }
-            }
         .padding(.vertical, 8).padding(.horizontal, 5)
         .frame(width: 147)
         .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(.white).shadow(color: .black.opacity(0.08), radius: 4, y: 1))
-    }
+        }
     }
 
     private func square(_ symbol: String, on: Bool, help: String, size: CGFloat = 42, _ action: @escaping () -> Void) -> some View {
@@ -382,21 +402,22 @@ private struct BoostEditorView: View {
                 .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(on ? BoostStyle.ink : BoostStyle.button))
         }
         .buttonStyle(.plain).help(help).accessibilityLabel(help)
-    }
+        }
     }
 
-    private func wide(_ title: String, trailing: String?, on: Bool = false) -> some View {
+    private func wide(_ title: String, trailing: String?, count: Int = 0, on: Bool = false) -> some View {
         WithPerceptionTracking {
         HStack {
             Text(title).font(.system(size: 14, weight: .semibold))
-            if let trailing { Spacer(); Image(systemName: trailing).font(.system(size: 13, weight: .semibold)) }
+            if count > 0 { Spacer(); Text("\(count)").font(.system(size: 13, weight: .semibold)).monospacedDigit() }
+            else if let trailing { Spacer(); Image(systemName: trailing).font(.system(size: 13, weight: .semibold)) }
         }
         .foregroundStyle(on ? .white : BoostStyle.ink)
         .padding(.horizontal, 12)
         .frame(maxWidth: trailing == nil ? .infinity : 147, minHeight: 38)
         .frame(width: trailing == nil ? nil : 147)
         .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(on ? BoostStyle.ink : BoostStyle.button))
-    }
+        }
     }
 
     private var code: some View {
@@ -421,7 +442,7 @@ private struct BoostEditorView: View {
             .frame(height: 69).background(BoostStyle.panel)
         }
         .frame(width: 480)
-    }
+        }
     }
 
     private func rename() {
@@ -456,7 +477,6 @@ private struct ColorWheel: View {
     let set: (Double, Double) -> Void
 
     var body: some View {
-        WithPerceptionTracking {
         GeometryReader { geo in
             let size = geo.size.width, inner = size - 14, c = size / 2
             let angle = hue * 2 * .pi, r = strength * (inner / 2 - 18)
@@ -492,7 +512,6 @@ private struct ColorWheel: View {
             })
         }
     }
-}
 }
 
 /// The Code panel's editor: dark, monospaced, no smart quotes.

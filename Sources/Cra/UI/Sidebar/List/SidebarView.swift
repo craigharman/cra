@@ -17,6 +17,8 @@ final class SidebarView: NSView {
     var siteControlsButtonFrameOnScreen: NSRect? { topBar.siteControlsButtonFrameOnScreen }
     /// The URL field's "Translation Available" (screen rect), nil while it isn't shown (#310).
     var translateFrameOnScreen: NSRect? { topBar.translateFrameOnScreen }
+    /// The URL field's "Pop-ups Blocked" (#357), on the translate line's place.
+    var blockedPopupsFrameOnScreen: NSRect? { topBar.translateFrameOnScreen }
     /// Scenario hook (#310): what the URL field's translate line says, nil while it isn't shown.
     var debugTranslateLine: String? { topBar.debugTranslateLine }
     /// Scenario hooks (#226): the URL field as if the pointer were over the header, and a press on
@@ -24,6 +26,9 @@ final class SidebarView: NSView {
     func debugURLFieldHover(_ on: Bool) -> [ToolbarComposition.Item]? { topBar.debugURLFieldHover(on) }
     func debugURLFieldPress(_ item: ToolbarComposition.Item) -> Bool { topBar.debugURLFieldPress(item) }
     func debugURLFieldClick() -> String { topBar.debugURLFieldClick() }
+    var debugURLFieldState: String { topBar.debugURLFieldState }
+    /// The URL field edited in place puts the address back (#344).
+    func endAddressEditing() { topBar.endAddressEditing() }
     func debugURLFieldType(_ text: String, commit: Bool) -> Bool { topBar.debugURLFieldType(text, commit: commit) }
     private let pager: SpacePagerView
     private let trayHost: DownloadsTrayView
@@ -363,7 +368,8 @@ final class SidebarTopBarView: NSView {
         return pill.editingText.map { "editing \($0)" } ?? "not editing"
     }
     func debugURLFieldType(_ text: String, commit: Bool) -> Bool { !pill.isHidden && pill.debugType(text, commit: commit) }
-    var debugURLFieldEditing: Bool { pill.isEditing }
+    func endAddressEditing() { pill.endEditing(commit: false) }
+    var debugURLFieldState: String { pill.isHidden ? "hidden" : pill.editingText.map { "editing \($0)" } ?? "not editing" }
     private var syncQueued = false
 
     var preferredHeight: CGFloat { CraMetrics.titleAreaHeight + (compact ? 2 + pill.height + 8 : 0) }
@@ -408,7 +414,7 @@ final class SidebarTopBarView: NSView {
 
     private func button(_ key: String, symbol: String, help: String, size: CGFloat, height: CGFloat, iconSize: CGFloat,
                         weight: NSFont.Weight = .regular, active: Bool?, enabled: Bool = true, animated: Bool = false,
-                        action: @escaping () -> Void) -> SidebarGlyphButton {
+                        history: BackForwardMenu.Direction? = nil, action: @escaping () -> Void) -> SidebarGlyphButton {
         let b = buttons[key] ?? {
             let b = SidebarGlyphButton(symbol: symbol, size: size, height: height, iconSize: iconSize, weight: weight, help: help, colors: colors, action: action)
             buttons[key] = b
@@ -420,6 +426,7 @@ final class SidebarTopBarView: NSView {
         b.active = active
         b.enabled = enabled
         b.action = action
+        b.secondaryAction = history.map { direction in { [weak self] view in self?.actions.showBackForwardMenu(nil, direction, view) } }
         return b
     }
 
@@ -451,17 +458,17 @@ final class SidebarTopBarView: NSView {
             : button("toggle", symbol: "sidebar.left", help: help, size: 32, height: 32, iconSize: 15.5, active: active) { [weak self] in self?.actions.toggleSidebar() }
         var shown = narrow ? [] : [toggle]
         if narrow {
-            shown.append(button("nback", symbol: "arrow.left", help: "Go Back (⌘[)", size: 28, height: 28, iconSize: 15, active: active, enabled: ui.canGoBack) { [weak self] in self?.actions.goBack() })
-            shown.append(button("nforward", symbol: "arrow.right", help: "Go Forward (⌘])", size: 28, height: 28, iconSize: 15, active: active, enabled: ui.canGoForward) { [weak self] in self?.actions.goForward() })
+            shown.append(button("nback", symbol: "arrow.left", help: "Go Back (⌘[)", size: 28, height: 28, iconSize: 15, active: active, enabled: ui.canGoBack, history: .back) { [weak self] in self?.actions.goBack() })
+            shown.append(button("nforward", symbol: "arrow.right", help: "Go Forward (⌘])", size: 28, height: 28, iconSize: 15, active: active, enabled: ui.canGoForward, history: .forward) { [weak self] in self?.actions.goForward() })
             shown.append(button("more", symbol: morePanel == nil ? "ellipsis" : "xmark", help: "More options", size: 28, height: 28, iconSize: 15,
                                 weight: .semibold, active: active) { [weak self] in self?.toggleMorePanel() })
         } else if compact {
-            shown.append(button("back", symbol: "arrow.left", help: "Go Back (⌘[)", size: 32, height: 32, iconSize: 15, active: active, enabled: ui.canGoBack) { [weak self] in self?.actions.goBack() })
-            shown.append(button("forward", symbol: "arrow.right", help: "Go Forward (⌘])", size: 32, height: 32, iconSize: 15, active: active, enabled: ui.canGoForward) { [weak self] in self?.actions.goForward() })
+            shown.append(button("back", symbol: "arrow.left", help: "Go Back (⌘[)", size: 32, height: 32, iconSize: 15, active: active, enabled: ui.canGoBack, history: .back) { [weak self] in self?.actions.goBack() })
+            shown.append(button("forward", symbol: "arrow.right", help: "Go Forward (⌘])", size: 32, height: 32, iconSize: 15, active: active, enabled: ui.canGoForward, history: .forward) { [weak self] in self?.actions.goForward() })
             shown.append(button("reload", symbol: reloadSymbol, help: "Refresh (⌘R)", size: 32, height: 32, iconSize: 15, active: active, animated: true) { [weak self] in self?.actions.reload() })
         } else if devNav {
-            shown.append(button("dback", symbol: "arrow.left", help: "Go Back (⌘[)", size: 34, height: 28, iconSize: 15, active: nil, enabled: ui.canGoBack) { [weak self] in self?.actions.goBack() })
-            shown.append(button("dforward", symbol: "arrow.right", help: "Go Forward (⌘])", size: 34, height: 28, iconSize: 15, active: nil, enabled: ui.canGoForward) { [weak self] in self?.actions.goForward() })
+            shown.append(button("dback", symbol: "arrow.left", help: "Go Back (⌘[)", size: 34, height: 28, iconSize: 15, active: nil, enabled: ui.canGoBack, history: .back) { [weak self] in self?.actions.goBack() })
+            shown.append(button("dforward", symbol: "arrow.right", help: "Go Forward (⌘])", size: 34, height: 28, iconSize: 15, active: nil, enabled: ui.canGoForward, history: .forward) { [weak self] in self?.actions.goForward() })
             shown.append(button("dreload", symbol: reloadSymbol, help: "Refresh (⌘R)", size: 24, height: 24, iconSize: 15, active: nil, animated: true) { [weak self] in self?.actions.reload() })
         }
         for (k, b) in buttons where !shown.contains(where: { $0 === b }) {
@@ -496,16 +503,22 @@ final class SidebarTopBarView: NSView {
                 }
             }
             let translation = tab.flatMap { ui.navState(for: $0.id).translation }
+            // Blocked pop-ups (#357) take the translate line while they wait: they go with the
+            // page's next navigation.
+            let popups = tab.map { ui.navState(for: $0.id).blockedPopups } ?? 0
+            let line = popups > 0 ? BlockedPopups.buttonTitle(count: popups)
+                : translation?.offersTranslation == true ? (narrowWidth ? "Translate" : "Translation Available") : nil
             pill.show(text: text, url: url, hasTab: tab != nil, colors: colors, active: active,
                       pinned: pinned, protectedMedia: tab.flatMap { ui.navState(for: $0.id).protectedMedia },
-                      translate: translation?.offersTranslation == true ? (narrowWidth ? "Translate" : "Translation Available") : nil,
+                      translate: line,
                       tabID: tab?.id,
                       // An empty split pane has no address: the bar's "Search or Enter URL…" fills it.
                       editInPlace: store.settings.editAddressInPlace && tab?.isEmptyTab != true)
             let tabID = tab?.id
             pill.onTranslate = { [weak self] in
                 guard let self, let tabID else { return }
-                self.actions.showTranslate(tabID, self.translateFrameOnScreen)
+                if popups > 0 { self.actions.showBlockedPopups(tabID, self.translateFrameOnScreen) }
+                else { self.actions.showTranslate(tabID, self.translateFrameOnScreen) }
             }
         }
         needsLayout = true
@@ -755,7 +768,12 @@ final class SidebarURLPill: NSView, NSTextFieldDelegate {
                 b.menuProvider = { ExtensionStore.shared.entries.first { $0.extensionID == id }.map(ExtensionsMenu.iconMenu) }
                 accessories.append(b)
             case .copyURL:
-                let copy = SidebarGlyphButton(symbol: "link", size: 28, height: 28, iconSize: 14, weight: .regular, help: "Copy URL (⇧⌘C)", colors: colors) { actions.performAction("copyURL") }
+                let copy = SidebarGlyphButton(symbol: "link", size: 28, height: 28, iconSize: 14, weight: .regular, help: "Copy URL (⇧⌘C)", colors: colors) {}
+                // Arc confirms a click here in place as well as with the toast; ⇧⌘C only toasts (#361).
+                copy.action = { [weak copy] in
+                    actions.performAction("copyURL")
+                    copy?.playCopyCheck(glyphSize: 14)
+                }
                 copy.active = m.active
                 accessories.append(copy)
             case .extensions:
@@ -1306,11 +1324,16 @@ final class SpaceCellView: NSView, ArcTooltipTarget {
     private let spaceID: UUID
     private let store: SidebarStore
     private let ui: SidebarUIState
-    private let emoji = NSTextField.sidebarLabel(size: 13)
+    private let emoji = EmojiLabel.sidebar(size: 13)
     private let emojiHolder = NSView()
     /// An Icon-tab glyph (Space.symbol) in the emoji's place.
     private let symbol = NSImageView()
     private var symbolName: String?
+    /// A picture the user chose (Space.iconImage) in the emoji's place. It sits in `emojiHolder`, so
+    /// it gets the same dimming and desaturation as an emoji while the cell isn't lit, and shows in
+    /// its own colours while it is.
+    private let picture = NSImageView()
+    private var pictureData: Data?
     /// Arc's dot, outside `emojiHolder` so its own ink sets how faint it is.
     private let dot = CALayer()
     private var icon = SpaceIcon.none
@@ -1320,6 +1343,7 @@ final class SpaceCellView: NSView, ArcTooltipTarget {
         switch mark {
         case .emoji(let e): return e
         case .symbol(let s): return s
+        case .image: return "image"
         case .dot(let d): return "dot\(Int(d))"
         }
     }
@@ -1383,12 +1407,19 @@ final class SpaceCellView: NSView, ArcTooltipTarget {
         case .emoji(let e):
             emoji.stringValue = e
             showSymbol(nil)
+            showPicture(nil)
         case .symbol(let name):
             emoji.stringValue = ""
             showSymbol(name)
+            showPicture(nil)
+        case .image(let data):
+            emoji.stringValue = ""
+            showSymbol(nil)
+            showPicture(data)
         case .dot:
             emoji.stringValue = ""
             showSymbol(nil)
+            showPicture(nil)
         }
         emojiHolder.isHidden = { if case .dot = mark { return true } else { return false } }()
         dot.isHidden = !emojiHolder.isHidden
@@ -1409,6 +1440,14 @@ final class SpaceCellView: NSView, ArcTooltipTarget {
         if symbol.superview == nil { symbol.imageScaling = .scaleNone; emojiHolder.addSubview(symbol) }
     }
 
+    private func showPicture(_ data: Data?) {
+        guard pictureData != data else { return }
+        pictureData = data
+        picture.image = data.flatMap { SpaceIconImage.image($0, points: 16) }
+        picture.isHidden = data == nil
+        if picture.superview == nil { picture.imageScaling = .scaleNone; emojiHolder.addSubview(picture) }
+    }
+
     /// Arc's hovered/pressed cell on a dark space: white at ~7.8%, 6 pt corners.
     private func refreshFill(_ on: Bool? = nil) {
         let fill = colors.isDark ? NSColor.white.withAlphaComponent(0.078) : NSColor.black.withAlphaComponent(0.05)
@@ -1423,8 +1462,9 @@ final class SpaceCellView: NSView, ArcTooltipTarget {
         let size: CGFloat = 13
         if emoji.font?.pointSize != size { emoji.font = .systemFont(ofSize: size) }
         let h = emoji.intrinsicContentSize.height
-        emoji.frame = NSRect(x: 0, y: (bounds.height - h) / 2, width: bounds.width, height: h)
+        emoji.frame = emoji.frameHoldingInk(NSRect(x: 0, y: (bounds.height - h) / 2, width: bounds.width, height: h))
         symbol.frame = bounds
+        picture.frame = bounds
         symbol.symbolConfiguration = .init(pointSize: size - 2, weight: .medium)
         if case .dot(let d) = mark {
             dot.bounds = CGRect(x: 0, y: 0, width: d, height: d)

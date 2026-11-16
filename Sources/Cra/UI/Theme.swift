@@ -37,11 +37,8 @@ struct SpacePalette {
     /// One flat colour over Arc's solid-theme material (ShellView.solidBackdrop).
     let solid: Bool
 
-    /// Arc 1.171 over solid white and black backdrops (31 Oct 2026, nine colours, sRGB after
-    /// undoing the display's P3): out = α·colour + (1 − α)·(66 + 0.52·backdrop) while active,
-    /// α·colour + (1 − α)·212 while inactive, with α = 0.19 + 0.55·intensity (fits 0.191,
-    /// 0.459, 0.742 at 0, 0.5, 1; within 3/255). isVibrant and the text appearance don't matter.
-    static func solidAlpha(intensity: Double) -> Double { 0.19 + 0.55 * max(0, min(1, intensity)) }
+    /// Arc's one-colour opacity (SpaceTheme.solidAlpha, where the measurements are).
+    static func solidAlpha(intensity: Double) -> Double { SpaceTheme.solidAlpha(intensity: intensity) }
 
     var gradient: LinearGradient {
         LinearGradient(colors: gradientColors, startPoint: .top, endPoint: .bottom)
@@ -158,8 +155,8 @@ extension SpaceTheme {
     }
 }
 
-/// macOS' light or dark appearance, which an Auto space theme follows (Arc: appearanceBased).
-/// Cra never sets NSApp.appearance, so the app's effective appearance is the system's.
+/// The app's light or dark appearance, which an Auto space theme follows (Arc: appearanceBased):
+/// macOS', unless View ▸ Appearance sets NSApp.appearance to Light or Dark, as Arc's does (#362).
 @Perceptible
 final class SystemAppearance: @unchecked Sendable {
     static let shared = SystemAppearance()

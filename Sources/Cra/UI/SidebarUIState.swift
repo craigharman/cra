@@ -20,6 +20,9 @@ final class SidebarUIState {
     /// filled like the selected tab, which loses its fill (Arc: isCommandBarNewTabPlaceholderActive).
     var newTabPlaceholderActive = false
     var draggingID: UUID?
+    /// The tab that was open before the press that switched to the row being dragged: Arc shows it
+    /// again while the drag over the page offers a split, and splits the dragged tab with it.
+    var tabBeforePress: UUID?
     /// Loading progress per tab (0...1), fed by the browser manager.
     var progress: [UUID: Double] = [:]
     var loadedTabIDs: Set<UUID> = []
@@ -183,6 +186,8 @@ struct TabNavState: Equatable {
     var protectedMedia: String?
     /// Chromium's translate state for the page (#310): Arc's translate button and popover.
     var translation: PageTranslation?
+    /// Pop-ups Chromium blocked on the page and not opened yet (#357): the blocked pop-ups button.
+    var blockedPopups = 0
 }
 
 /// Where a dragged tab or link would go in the split (Arc: SplitViewControllerLayout.DropTarget).
@@ -203,8 +208,13 @@ final class SidebarActions {
     var moveBlankWindow: (UUID) -> Void = { _ in }
     var goBack: () -> Void = {}
     var goForward: () -> Void = {}
+    /// Right-click (or hold) Back or Forward: the tab's history that way, hung under the button
+    /// (#416). The tab is a split pane's, or nil for the one in front.
+    var showBackForwardMenu: (UUID?, BackForwardMenu.Direction, NSView) -> Void = { _, _, _ in }
     var reload: () -> Void = {}
     var editSpace: (Space?) -> Void = { _ in }
+    /// Move to ▸ New Space… on picked tabs: the new space sheet, and the tabs go to the space it makes.
+    var newSpaceWith: ([UUID]) -> Void = { _ in }
     /// Arc's space menu: the icon picker under the header, the theme editor, a new profile for
     /// the space, the Library's Spaces page, and deleting this space (not the focused one).
     var changeSpaceIcon: (Space, NSView) -> Void = { _, _ in }
@@ -245,6 +255,8 @@ final class SidebarActions {
     var showExtensionsMenu: () -> Void = {}
     /// Arc's translate popover for a tab (#310), hung under its button (screen rect).
     var showTranslate: (UUID, NSRect?) -> Void = { _, _ in }
+    /// The blocked pop-ups menu for a tab, hung from the button's frame on screen (#357).
+    var showBlockedPopups: (UUID, NSRect?) -> Void = { _, _ in }
     /// Split view: a pane's pinned extension or Extensions button. The pane takes the focus
     /// first, so the action and the Site Control Center describe its page (GitHub #178).
     var paneRunExtension: (UUID, String) -> Void = { _, _ in }

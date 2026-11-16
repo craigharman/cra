@@ -5,12 +5,33 @@ your tabs, spaces and signed-in sessions, through the
 [Model Context Protocol](https://modelcontextprotocol.io). Cra runs no model and calls no AI
 service itself. The agent you connect reads what it opens, under that agent's own data rules.
 
-It is off until you turn it on: **Settings ▸ Advanced ▸ Allow local agents to control Cra**,
-then **Copy MCP Configuration** and add that entry to the agent's MCP settings. For Claude Code:
+It is off until you turn it on: **Settings ▸ Advanced ▸ Allow local agents to control Cra**.
+Then click your agent under **Add Cra to an agent**, and Cra writes itself into that agent's
+own MCP settings, the way the agent's `mcp add` command would:
+
+| Tile | File (in your home folder) |
+| --- | --- |
+| Claude Code (desktop app or terminal) | `.claude.json`, `mcpServers` with `"type": "stdio"` |
+| Claude Cowork (the Claude app's chats and Cowork) | `Library/Application Support/Claude/claude_desktop_config.json`; quit and reopen Claude |
+| Codex (desktop app or CLI) | `.codex/config.toml`, a `[mcp_servers.cra]` table |
+| Cursor | `.cursor/mcp.json` |
+| T3 Code, Conductor | they run Claude Code and Codex, so Cra goes in those files (Codex's only when `~/.codex` exists) |
+| Other: VS Code, Windsurf, Gemini CLI, LM Studio | `Code/User/mcp.json` (`servers`), `.codeium/windsurf/mcp_config.json`, `.gemini/settings.json`, `.lmstudio/mcp.json` |
+
+Only Cra's own entry changes: the rest of the file, other servers and the entry's other keys
+(an `env`, a timeout) stay, and the file keeps its permissions (a link stays a link). A file Cra
+can't edit safely (JSON with comments, a Codex server written inline) is left alone, and the
+tile says so. A tile says **Added** when the entry runs this Cra, **Update** when it points at
+another copy or an older location (click to fix), and is dimmed when the agent isn't on this Mac.
+Right-click a tile to remove Cra again or show the file. CraDev adds itself as `cra-dev`.
+`MCPAgentSetup` in CraCore decides every edit; `CRA_AGENT_CONFIG_HOME` points a test copy at a
+made-up home folder.
+
+For any other agent, **Copy MCP Configuration** and add the entry by hand. For Claude Code by hand:
 
     claude mcp add cra -- "/Applications/Cra.app/Contents/MacOS/Cra" --mcp "$HOME/Library/Application Support/Cra/mcp.sock"
 
-Keep Cra running. Copy the configuration again after moving the app or changing profiles.
+Keep Cra running. After moving the app or changing profiles, the tiles say **Update**.
 CraDev has its own profile and socket.
 
 The first time an agent connects, Cra asks: **Let "Claude Code" use Cra?** with the app it runs
@@ -185,7 +206,13 @@ links and popups are refused, JavaScript dialogs are suppressed and file pickers
 ### Files
 
 `page_upload` takes 1–8 absolute paths of regular files (not symlinks), copies them into private
-staging and selects them with `DOM.setFileInputFiles`; it doesn't submit the form. 16 MiB a file,
+staging and selects them with `DOM.setFileInputFiles`; it doesn't submit the form. The target is
+the file input, or what a site shows instead of it: a label for it, an element holding exactly one
+(a drop zone, a component's host), or a button in the same shadow-root component (reddit.com's
+uploaders keep a hidden input in an open shadow root, where no ref or selector reaches it). Refs in
+same-site iframes work too, and so does x/y from `page_screenshot`, which takes the element there
+(a label's text has no ref). Plain-DOM neighbours don't count, and two inputs it can't tell apart are
+refused (`MCPUploadTarget` decides). 16 MiB a file,
 64 MiB a tab. Copies stay until their tab closes, its page is replaced, or MCP stops, so the page
 can still read its File objects; after a crash they go the next time MCP starts.
 
