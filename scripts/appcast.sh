@@ -18,7 +18,7 @@ plist() { /usr/libexec/PlistBuddy -c "Print :$1" "$APP/Contents/Info.plist"; }
 VERSION="$(plist CFBundleShortVersionString)"
 BUILD="$(plist CFBundleVersion)"
 MIN_OS="$(plist LSMinimumSystemVersion)"
-URL="${CRA_UPDATE_URL:-https://github.com/VictorKildahl/cra/releases/download/v$VERSION/$(basename "$ZIP")}"
+URL="${CRA_UPDATE_URL:-https://github.com/${GITHUB_REPOSITORY:-VictorKildahl/cra}/releases/download/v$VERSION/$(basename "$ZIP")}"
 
 SIGN=vendor/sparkle/bin/sign_update
 if [ -n "${SPARKLE_PRIVATE_KEY:-}" ]; then

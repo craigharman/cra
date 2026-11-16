@@ -97,7 +97,14 @@ jobs:
           APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
           SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
           CRA_GOOGLE_API_KEY: ${{ secrets.CRA_GOOGLE_API_KEY }}
+          # Fork: the public half of SPARKLE_PRIVATE_KEY (repository variable).
+          SPARKLE_PUBLIC_KEY: ${{ vars.SPARKLE_PUBLIC_KEY }}
         run: scripts/release.sh
+
+      # Fork: fail the release if any Intel binary needs a macOS newer than 13.
+      - name: Verify the Intel app runs on Ventura
+        if: matrix.arch == 'x86_64'
+        run: python3 scripts/verify-ventura-bundle.py build/x86_64/Cra.app
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v7

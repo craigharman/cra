@@ -1,0 +1,143 @@
+name: Ventura sync
+
+# Fork only. When VictorKildahl/cra tags a release (vX.Y.Z), merge that tag into
+# ventura-support, run the tests, push, and tag the same version here. The tag push
+# starts release.yml, which builds and publishes the macOS 13 release.
+# A merge conflict or a failing test fails this run (GitHub emails you) and pushes nothing:
+# merge the tag by hand (git merge -X ignore-space-change vX.Y.Z), push ventura-support,
+# then run this workflow again.
+#
+# Setup (once):
+#   secret SYNC_TOKEN          fine-grained PAT for this repo: Contents and Workflows read/write.
+#                              GITHUB_TOKEN can't push upstream's workflow changes, and its tag
+#                              pushes don't start release.yml.
+#   secret SPARKLE_PRIVATE_KEY and variable SPARKLE_PUBLIC_KEY: this fork's update key pair.
+#   ventura-support as the default branch: schedules only run there.
+#
+# Upstream code (lint, tests) runs only in the test job, which has no secrets. The publish job
+# runs on a fresh machine, repeats the same merge without running anything from the repo, and
+# is the only one that sees SYNC_TOKEN.
+
+on:
+  schedule:
+    - cron: "17 9 * * *"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Upstream tag to release (default the newest)
+        required: false
+
+concurrency:
+  group: ventura-sync
+
+permissions:
+  contents: read
+
+env:
+  UPSTREAM: https://github.com/VictorKildahl/cra.git
+  # Upstream tags go in their own namespace so they never get pushed here as-is.
+  TAGS: "+refs/tags/v*:refs/upstream/tags/v*"
+
+jobs:
+  find:
+    name: Find the upstream release
+    if: github.repository == 'craigharman/cra'
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.tag.outputs.tag }}
+      new: ${{ steps.tag.outputs.new }}
+      base: ${{ steps.tag.outputs.base }}
+      upstream: ${{ steps.tag.outputs.upstream }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ventura-support
+          persist-credentials: false
+
+      - id: tag
+        env:
+          WANTED: ${{ inputs.tag }}
+          PUBLIC: ${{ vars.SPARKLE_PUBLIC_KEY }}
+          PRIVATE: ${{ secrets.SPARKLE_PRIVATE_KEY != '' }}
+        run: |
+          git fetch --no-tags "$UPSTREAM" "$TAGS"
+          TAG="${WANTED:-$(git for-each-ref --format='%(refname:lstrip=3)' refs/upstream/tags | sort -V | tail -1)}"
+          git rev-parse -q --verify "refs/upstream/tags/$TAG" >/dev/null || { echo "No upstream tag $TAG" >&2; exit 1; }
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          # The tag's commit: the later jobs merge exactly this, even if upstream moves the tag.
+          echo "upstream=$(git rev-parse "refs/upstream/tags/$TAG^{commit}")" >> "$GITHUB_OUTPUT"
+          # The commit both later jobs merge onto, so they build the same thing.
+          echo "base=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          if git ls-remote --exit-code origin "refs/tags/$TAG" >/dev/null; then
+            echo "$TAG is already released here." | tee -a "$GITHUB_STEP_SUMMARY"
+            echo "new=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # Without the key pair installed copies would check this feed with upstream's key
+          # and never update.
+          [ -n "$PUBLIC" ] && [ "$PRIVATE" = true ] || { echo "Set SPARKLE_PUBLIC_KEY and SPARKLE_PRIVATE_KEY first." >&2; exit 1; }
+          echo "new=true" >> "$GITHUB_OUTPUT"
+
+  test:
+    name: Merge and test (no secrets)
+    needs: find
+    if: needs.find.outputs.new == 'true'
+    runs-on: macos-26
+    env:
+      TAG: ${{ needs.find.outputs.tag }}
+      UPSTREAM_SHA: ${{ needs.find.outputs.upstream }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.find.outputs.base }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Merge
+        run: |
+          git fetch --no-tags "$UPSTREAM" "$TAGS"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if ! git merge -X ignore-space-change --no-edit -m "Merge upstream $TAG" "$UPSTREAM_SHA"; then
+            {
+              echo "### $TAG doesn't merge cleanly"
+              echo "Conflicts:"
+              git diff --name-only --diff-filter=U | sed 's/^/- /'
+              echo
+              echo "Fix locally: \`git fetch upstream --tags && git merge -X ignore-space-change $TAG\`, resolve, push ventura-support, re-run this workflow."
+            } | tee -a "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+
+      - name: Lint
+        run: scripts/lint.py
+
+      - name: Tests
+        run: scripts/test.sh
+
+  publish:
+    name: Push and tag (starts release.yml)
+    needs: [find, test]
+    runs-on: ubuntu-latest
+    env:
+      TAG: ${{ needs.find.outputs.tag }}
+      BASE: ${{ needs.find.outputs.base }}
+      UPSTREAM_SHA: ${{ needs.find.outputs.upstream }}
+    steps:
+      # Nothing from the repo runs in this job: checkout, merge and push only.
+      - uses: actions/checkout@v7
+        with:
+          ref: ventura-support
+          fetch-depth: 0
+          token: ${{ secrets.SYNC_TOKEN }}
+
+      - run: |
+          [ "$(git rev-parse HEAD)" = "$BASE" ] || { echo "ventura-support moved since the tests ran; run again." >&2; exit 1; }
+          git fetch --no-tags "$UPSTREAM" "$TAGS"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git merge -X ignore-space-change --no-edit -m "Merge upstream $TAG" "$UPSTREAM_SHA"
+          git push origin HEAD:ventura-support
+          git tag "$TAG"
+          git push origin "refs/tags/$TAG"
+          echo "Tagged $TAG; release.yml builds it." >> "$GITHUB_STEP_SUMMARY"
