@@ -10,57 +10,57 @@ struct PluginsPane: View {
 
     var body: some View {
         WithPerceptionTracking {
-            SettingsCardPane {
-                SettingsHeader("Live folder plugins")
-                SettingsCard {
-                    if registry.packages.isEmpty {
-                        SettingsCardRow {
-                            Text("No plugins installed.").font(.system(size: 13)).foregroundStyle(.secondary)
-                        } trailing: { EmptyView() }
-                    }
-                    ForEach(Array(registry.packages.sorted { $0.manifest.name < $1.manifest.name }.enumerated()), id: \.element.manifest.id) { index, package in
-                        WithPerceptionTracking {
-                            if index > 0 { SettingsCardDivider() }
-                            SettingsCardRow {
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text("\(package.manifest.name) \(package.manifest.version)").font(.system(size: 13))
-                                    Text(registry.isBundled(package) ? "Built-in" : "Installed plugin")
-                                        .font(.system(size: 11)).foregroundStyle(.secondary)
-                                }
-                            } trailing: {
-                                HStack(spacing: 12) {
-                                    if !registry.isBundled(package) { Button("Remove…") { remove(package) } }
-                                    Toggle("Enable \(package.manifest.name)", isOn: Binding(
-                                        get: { registry.isEnabled(package.manifest.id) },
-                                        set: { enabled in Task { await registry.setEnabled(enabled, id: package.manifest.id) } }
-                                    )).labelsHidden().toggleStyle(.switch)
-                                }
-                            }
-                        }
-                    }
+        SettingsCardPane {
+            SettingsHeader("Live folder plugins")
+            SettingsCard {
+                if registry.packages.isEmpty {
+                    SettingsCardRow {
+                        Text("No plugins installed.").font(.system(size: 13)).foregroundStyle(.secondary)
+                    } trailing: { EmptyView() }
                 }
-                HStack {
-                    Button("Add Plugin…") { add() }
-                    Spacer()
-                    if registry.reloading { ProgressView().controlSize(.small) }
-                    Button("Reload Plugins") {
-                        Task {
-                            await registry.reload()
-                            await LiveFolderManager.shared.migrateFolders()
-                            LiveFolderManager.shared.refreshStale()
+                ForEach(Array(registry.packages.sorted { $0.manifest.name < $1.manifest.name }.enumerated()), id: \.element.manifest.id) { index, package in
+                        WithPerceptionTracking {
+                    if index > 0 { SettingsCardDivider() }
+                    SettingsCardRow {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("\(package.manifest.name) \(package.manifest.version)").font(.system(size: 13))
+                            Text(registry.isBundled(package) ? "Built-in" : "Installed plugin")
+                                .font(.system(size: 11)).foregroundStyle(.secondary)
                         }
-                    }
-                }.padding(.top, 7.5)
-                SettingsFootnote("Create folders from the sidebar’s Live Folders menu. Disabling or removing a plugin keeps its existing folders and tabs.")
-                if let error { SettingsFootnote(error).foregroundStyle(.red) }
-                ForEach(Array(registry.failures.enumerated()), id: \.offset) { _, message in
-                    WithPerceptionTracking {
-                        SettingsFootnote(message).foregroundStyle(.red)
+                    } trailing: {
+                        HStack(spacing: 12) {
+                            if !registry.isBundled(package) { Button("Remove…") { remove(package) } }
+                            Toggle("Enable \(package.manifest.name)", isOn: Binding(
+                                get: { registry.isEnabled(package.manifest.id) },
+                                set: { enabled in Task { await registry.setEnabled(enabled, id: package.manifest.id) } }
+                            )).labelsHidden().toggleStyle(.switch)
+                        }
                     }
                 }
             }
-            .disabled(registry.reloading || preparing)
+                }
+            HStack {
+                Button("Add Plugin…") { add() }
+                Spacer()
+                if registry.reloading { ProgressView().controlSize(.small) }
+                Button("Reload Plugins") {
+                    Task {
+                        await registry.reload()
+                        await LiveFolderManager.shared.migrateFolders()
+                        LiveFolderManager.shared.refreshStale()
+                    }
+                }
+            }.padding(.top, 7.5)
+            SettingsFootnote("Create folders from the sidebar’s Live Folders menu. Disabling or removing a plugin keeps its existing folders and tabs.")
+            if let error { SettingsFootnote(error).foregroundStyle(.red) }
+            ForEach(Array(registry.failures.enumerated()), id: \.offset) { _, message in
+                    WithPerceptionTracking {
+                SettingsFootnote(message).foregroundStyle(.red)
+            }
         }
+            }
+        .disabled(registry.reloading || preparing)
+    }
     }
 
     private func add() {

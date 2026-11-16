@@ -48,27 +48,27 @@ struct UpdaterWindowView: View {
 
     var body: some View {
         WithPerceptionTracking {
-            VStack(spacing: 0) {
-                Image(nsImage: NSApp.applicationIconImage)
-                    .resizable()
-                    .frame(width: 64, height: 64)
-                    .padding(10)
-                    .padding(.top, 53)
-                Text(title)
-                    .font(.system(size: 24, weight: .bold))
-                    .frame(height: 30)
-                    .padding(.top, 10)
-                Text(subtitle)
-                    .font(.system(size: 11))
-                    .foregroundStyle(Color(nsColor: .updaterSecondary))
-                    .frame(height: 16)
-                    .padding(.top, -2)
-                content
-            }
-            .frame(width: 270)
-            .fixedSize(horizontal: false, vertical: true)
-            .padding(.bottom, 38)
+        VStack(spacing: 0) {
+            Image(nsImage: NSApp.applicationIconImage)
+                .resizable()
+                .frame(width: 64, height: 64)
+                .padding(10)
+                .padding(.top, 53)
+            Text(title)
+                .font(.system(size: 24, weight: .bold))
+                .frame(height: 30)
+                .padding(.top, 10)
+            Text(subtitle)
+                .font(.system(size: 11))
+                .foregroundStyle(Color(nsColor: .updaterSecondary))
+                .frame(height: 16)
+                .padding(.top, -2)
+            content
         }
+        .frame(width: 270)
+        .fixedSize(horizontal: false, vertical: true)
+        .padding(.bottom, 38)
+    }
     }
 
     private var title: String {
@@ -83,68 +83,68 @@ struct UpdaterWindowView: View {
 
     @ViewBuilder private var content: some View {
         WithPerceptionTracking {
-            switch updater.phase {
-            case .idle, .checking:
-                status("Checking for updates…")
-                UpdaterButton(title: "Cancel") { updater.dismissWindowAction() }
-            case .upToDate:
-                status("Your browser is up to date")
-                UpdaterButton(title: "Close") { updater.dismissWindowAction() }
-            case .found(let r, let downloaded):
-                if let html = r.notesHTML, !html.isEmpty {
-                    ReleaseNotesView(html: html)
-                        .padding(.top, 18)
-                } else {
-                    status("A new version is available")
-                }
-                UpdaterButton(title: downloaded ? "Install and Relaunch" : "Download") { updater.installAndRelaunch() }
-                LaterButton(title: "Later") { updater.dismissWindowAction() }
-            case .downloading(let received, let expected):
-                progress(expected > 0 ? Double(received) / Double(expected) : nil,
-                         expected > 0 ? "\(Self.bytes(received)) of \(Self.bytes(expected))" : "Downloading…")
-                UpdaterButton(title: "Cancel") { updater.dismissWindowAction() }
-            case .extracting:
-                progress(nil, "Preparing update…")
-                UpdaterButton(title: "Install and Relaunch") {}.disabled(true)
-            case .readyToInstall:
-                status("Ready to Install")
-                UpdaterButton(title: "Install and Relaunch") { updater.installAndRelaunch() }
-            case .installing:
-                progress(nil, "Installing update…")
-                UpdaterButton(title: "Install and Relaunch") {}.disabled(true)
-            case .failed(let message):
-                status(message)
-                UpdaterButton(title: "Download Manually") { updater.openDownloadPage() }
-                LaterButton(title: "Close") { updater.dismissWindowAction() }
+        switch updater.phase {
+        case .idle, .checking:
+            status("Checking for updates…")
+            UpdaterButton(title: "Cancel") { updater.dismissWindowAction() }
+        case .upToDate:
+            status("Your browser is up to date")
+            UpdaterButton(title: "Close") { updater.dismissWindowAction() }
+        case .found(let r, let downloaded):
+            if let html = r.notesHTML, !html.isEmpty {
+                ReleaseNotesView(html: html)
+                    .padding(.top, 18)
+            } else {
+                status("A new version is available")
             }
+            UpdaterButton(title: downloaded ? "Install and Relaunch" : "Download") { updater.installAndRelaunch() }
+            LaterButton(title: "Later") { updater.dismissWindowAction() }
+        case .downloading(let received, let expected):
+            progress(expected > 0 ? Double(received) / Double(expected) : nil,
+                     expected > 0 ? "\(Self.bytes(received)) of \(Self.bytes(expected))" : "Downloading…")
+            UpdaterButton(title: "Cancel") { updater.dismissWindowAction() }
+        case .extracting:
+            progress(nil, "Preparing update…")
+            UpdaterButton(title: "Install and Relaunch") {}.disabled(true)
+        case .readyToInstall:
+            status("Ready to Install")
+            UpdaterButton(title: "Install and Relaunch") { updater.installAndRelaunch() }
+        case .installing:
+            progress(nil, "Installing update…")
+            UpdaterButton(title: "Install and Relaunch") {}.disabled(true)
+        case .failed(let message):
+            status(message)
+            UpdaterButton(title: "Download Manually") { updater.openDownloadPage() }
+            LaterButton(title: "Close") { updater.dismissWindowAction() }
         }
+    }
     }
 
     private func status(_ text: String) -> some View {
         WithPerceptionTracking {
-            Text(text)
-                .font(.system(size: 13))
-                .foregroundStyle(Color(nsColor: .updaterSecondary))
-                .multilineTextAlignment(.center)
-                .frame(width: 208)
-                .frame(minHeight: 18)
-                .fixedSize(horizontal: false, vertical: true)
-                .padding(.top, 18)
-                .padding(.bottom, 10)
-        }
+        Text(text)
+            .font(.system(size: 13))
+            .foregroundStyle(Color(nsColor: .updaterSecondary))
+            .multilineTextAlignment(.center)
+            .frame(width: 208)
+            .frame(minHeight: 18)
+            .fixedSize(horizontal: false, vertical: true)
+            .padding(.top, 18)
+            .padding(.bottom, 10)
+    }
     }
 
     private func progress(_ value: Double?, _ label: String) -> some View {
         WithPerceptionTracking {
-            VStack(spacing: 6) {
-                if let value { ProgressView(value: value) } else { ProgressView().progressViewStyle(.linear) }
-                Text(label).font(.system(size: 11)).foregroundStyle(Color(nsColor: .updaterSecondary)).monospacedDigit()
-            }
-            .controlSize(.small)
-            .frame(width: 170)
-            .padding(.top, 18)
-            .padding(.bottom, 10)
+        VStack(spacing: 6) {
+            if let value { ProgressView(value: value) } else { ProgressView().progressViewStyle(.linear) }
+            Text(label).font(.system(size: 11)).foregroundStyle(Color(nsColor: .updaterSecondary)).monospacedDigit()
         }
+        .controlSize(.small)
+        .frame(width: 170)
+        .padding(.top, 18)
+        .padding(.bottom, 10)
+    }
     }
 
     private static func bytes(_ n: UInt64) -> String {
@@ -159,13 +159,13 @@ private struct UpdaterButton: View {
 
     var body: some View {
         WithPerceptionTracking {
-            Button(title, action: action)
-                .buttonStyle(UpdaterButtonStyle())
-                .accessibilityLabel(title)
-                .keyboardShortcut(.defaultAction)
-                .padding(.top, 19)
-        }
+        Button(title, action: action)
+            .buttonStyle(UpdaterButtonStyle())
+            .accessibilityLabel(title)
+            .keyboardShortcut(.defaultAction)
+            .padding(.top, 19)
     }
+}
 }
 
 /// Arc's UpdaterButtonBackgroundColor with a faint shadow; the label is white ≈80% in dark mode.
@@ -174,16 +174,16 @@ private struct UpdaterButtonStyle: ButtonStyle {
 
     func makeBody(configuration: Configuration) -> some View {
         WithPerceptionTracking {
-            let shape = RoundedRectangle(cornerRadius: 6, style: .continuous)
-            configuration.label
-                .font(.system(size: 13, weight: .bold))
-                .foregroundStyle(.primary.opacity(enabled ? 0.94 : 0.4))
-                .frame(width: 170, height: 48)
-                .background(shape.fill(Color(nsColor: .updaterButton)).shadow(color: .black.opacity(0.1), radius: 5))
-                .contentShape(shape)
-                .opacity(configuration.isPressed ? 0.75 : 1)
-        }
+        let shape = RoundedRectangle(cornerRadius: 6, style: .continuous)
+        configuration.label
+            .font(.system(size: 13, weight: .bold))
+            .foregroundStyle(.primary.opacity(enabled ? 0.94 : 0.4))
+            .frame(width: 170, height: 48)
+            .background(shape.fill(Color(nsColor: .updaterButton)).shadow(color: .black.opacity(0.1), radius: 5))
+            .contentShape(shape)
+            .opacity(configuration.isPressed ? 0.75 : 1)
     }
+}
 }
 
 /// Arc: "remind me to download and install the update later".
@@ -193,15 +193,15 @@ private struct LaterButton: View {
 
     var body: some View {
         WithPerceptionTracking {
-            Button(title, action: action)
-                .buttonStyle(.plain)
-                .font(.system(size: 13))
-                .foregroundStyle(Color(nsColor: .updaterSecondary))
-                .keyboardShortcut(.cancelAction)
-                .padding(.top, 12)
-                .padding(.bottom, -12)
-        }
+        Button(title, action: action)
+            .buttonStyle(.plain)
+            .font(.system(size: 13))
+            .foregroundStyle(Color(nsColor: .updaterSecondary))
+            .keyboardShortcut(.cancelAction)
+            .padding(.top, 12)
+            .padding(.bottom, -12)
     }
+}
 }
 
 /// Arc's ReleaseNotesView: the appcast item's HTML with Arc's style (-apple-system 12px,
@@ -211,15 +211,15 @@ private struct ReleaseNotesView: View {
 
     var body: some View {
         WithPerceptionTracking {
-            ScrollView {
-                Text(Self.render(html))
-                    .textSelection(.enabled)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(10)
-            }
-            .frame(width: 230, height: 150)
-            .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(Color.primary.opacity(0.05)))
+        ScrollView {
+            Text(Self.render(html))
+                .textSelection(.enabled)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(10)
         }
+        .frame(width: 230, height: 150)
+        .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(Color.primary.opacity(0.05)))
+    }
     }
 
     private static func render(_ html: String) -> AttributedString {

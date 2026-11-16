@@ -64,46 +64,46 @@ private struct EssentialShortcutsView: View {
 
     var body: some View {
         WithPerceptionTracking {
-            VStack(alignment: .leading, spacing: 0) {
-                HStack(alignment: .center) {
-                    Text("Essential Keyboard Shortcuts")
-                        .font(.system(size: 20.5, weight: .heavy))
-                        .kerning(-0.3)
-                        .foregroundStyle(.white)
-                    Spacer(minLength: 8)
-                    ViewAllButton(action: viewAll)
-                }
-                .frame(height: 28)
-                .padding(.top, 37.5)
-                .padding(.bottom, 3)
-                ForEach(Array(EssentialShortcutsWindow.rows.enumerated()), id: \.offset) { i, row in
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(alignment: .center) {
+                Text("Essential Keyboard Shortcuts")
+                    .font(.system(size: 20.5, weight: .heavy))
+                    .kerning(-0.3)
+                    .foregroundStyle(.white)
+                Spacer(minLength: 8)
+                ViewAllButton(action: viewAll)
+            }
+            .frame(height: 28)
+            .padding(.top, 37.5)
+            .padding(.bottom, 3)
+            ForEach(Array(EssentialShortcutsWindow.rows.enumerated()), id: \.offset) { i, row in
                     WithPerceptionTracking {
-                        if i > 0 {
-                            Rectangle().fill(Color(red: 0x21 / 255, green: 0x27 / 255, blue: 0x39 / 255)).frame(height: 1)
-                        }
-                        HStack(alignment: .center, spacing: 12) {
-                            VStack(alignment: .leading, spacing: 2.5) {
-                                Text(row.title).font(.system(size: 15)).foregroundStyle(.white)
-                                Text(row.detail).font(.system(size: 12)).foregroundStyle(.white.opacity(0.62)).lineLimit(1)
-                            }
-                            Spacer(minLength: 8)
-                            HStack(spacing: 3) {
-                                ForEach(Array((bindings.action(row.action)?.primary?.caps ?? []).enumerated()), id: \.offset) { _, cap in
+                if i > 0 {
+                    Rectangle().fill(Color(red: 0x21 / 255, green: 0x27 / 255, blue: 0x39 / 255)).frame(height: 1)
+                }
+                HStack(alignment: .center, spacing: 12) {
+                    VStack(alignment: .leading, spacing: 2.5) {
+                        Text(row.title).font(.system(size: 15)).foregroundStyle(.white)
+                        Text(row.detail).font(.system(size: 12)).foregroundStyle(.white.opacity(0.62)).lineLimit(1)
+                    }
+                    Spacer(minLength: 8)
+                    HStack(spacing: 3) {
+                        ForEach(Array((bindings.action(row.action)?.primary?.caps ?? []).enumerated()), id: \.offset) { _, cap in
                                     WithPerceptionTracking {
-                                        KeyCap(text: cap == "⇥" ? "TAB" : cap)
-                                    }
-                                }
-                            }
+                            KeyCap(text: cap == "⇥" ? "TAB" : cap)
                         }
-                        .frame(height: 72)
                     }
                 }
-                Spacer(minLength: 0)
+                        }
+                .frame(height: 72)
             }
-            .padding(.horizontal, 30)
-            .frame(width: 475, height: 462, alignment: .topLeading)
+                }
+            Spacer(minLength: 0)
         }
+        .padding(.horizontal, 30)
+        .frame(width: 475, height: 462, alignment: .topLeading)
     }
+}
 }
 
 private struct ViewAllButton: View {
@@ -112,21 +112,21 @@ private struct ViewAllButton: View {
 
     var body: some View {
         WithPerceptionTracking {
-            Button(action: action) {
-                HStack(spacing: 8) {
-                    Text("View All").font(.system(size: 14))
-                    Image(systemName: "arrow.up.right").font(.system(size: 12, weight: .medium))
-                }
-                .foregroundStyle(.white.opacity(0.92))
-                .frame(width: 96, height: 28)
-                .background(RoundedRectangle(cornerRadius: 6, style: .continuous)
-                    .fill(Color(red: 0x28 / 255, green: 0x2D / 255, blue: 0x3F / 255).opacity(hover ? 0.8 : 1)))
-                .overlay(RoundedRectangle(cornerRadius: 6, style: .continuous).strokeBorder(.white.opacity(0.1), lineWidth: 1))
+        Button(action: action) {
+            HStack(spacing: 8) {
+                Text("View All").font(.system(size: 14))
+                Image(systemName: "arrow.up.right").font(.system(size: 12, weight: .medium))
             }
-            .buttonStyle(.plain)
-            .onHover { hover = $0 }
+            .foregroundStyle(.white.opacity(0.92))
+            .frame(width: 96, height: 28)
+            .background(RoundedRectangle(cornerRadius: 6, style: .continuous)
+                .fill(Color(red: 0x28 / 255, green: 0x2D / 255, blue: 0x3F / 255).opacity(hover ? 0.8 : 1)))
+            .overlay(RoundedRectangle(cornerRadius: 6, style: .continuous).strokeBorder(.white.opacity(0.1), lineWidth: 1))
         }
+        .buttonStyle(.plain)
+        .onHover { hover = $0 }
     }
+}
 }
 
 /// One key cap, as Arc draws it: a light blue face in a blue rim, on a darker blue lip.
@@ -138,22 +138,22 @@ private struct KeyCap: View {
 
     var body: some View {
         WithPerceptionTracking {
-            ZStack(alignment: .top) {
-                RoundedRectangle(cornerRadius: 6, style: .continuous).fill(Self.lip)
-                RoundedRectangle(cornerRadius: 6, style: .continuous).fill(Self.rim).frame(height: 26)
-                RoundedRectangle(cornerRadius: 4.5, style: .continuous)
-                    .fill(LinearGradient(colors: [Color(red: 0xEE / 255, green: 0xF3 / 255, blue: 0xFB / 255),
-                                                  Color(red: 0xCF / 255, green: 0xDD / 255, blue: 0xF5 / 255)],
-                                         startPoint: .top, endPoint: .bottom))
-                    .overlay(RoundedRectangle(cornerRadius: 4.5, style: .continuous).strokeBorder(.white.opacity(0.7), lineWidth: 0.75))
-                    .padding(1.5)
-                    .frame(height: 26)
-                Text(text)
-                    .font(.system(size: text.count > 1 ? 10.5 : 15, weight: .bold, design: .rounded))
-                    .foregroundStyle(Self.rim)
-                    .frame(height: 26)
-            }
-            .frame(width: text.count > 1 ? 34 : 28, height: 29)
+        ZStack(alignment: .top) {
+            RoundedRectangle(cornerRadius: 6, style: .continuous).fill(Self.lip)
+            RoundedRectangle(cornerRadius: 6, style: .continuous).fill(Self.rim).frame(height: 26)
+            RoundedRectangle(cornerRadius: 4.5, style: .continuous)
+                .fill(LinearGradient(colors: [Color(red: 0xEE / 255, green: 0xF3 / 255, blue: 0xFB / 255),
+                                              Color(red: 0xCF / 255, green: 0xDD / 255, blue: 0xF5 / 255)],
+                                     startPoint: .top, endPoint: .bottom))
+                .overlay(RoundedRectangle(cornerRadius: 4.5, style: .continuous).strokeBorder(.white.opacity(0.7), lineWidth: 0.75))
+                .padding(1.5)
+                .frame(height: 26)
+            Text(text)
+                .font(.system(size: text.count > 1 ? 10.5 : 15, weight: .bold, design: .rounded))
+                .foregroundStyle(Self.rim)
+                .frame(height: 26)
         }
+        .frame(width: text.count > 1 ? 34 : 28, height: 29)
     }
+}
 }

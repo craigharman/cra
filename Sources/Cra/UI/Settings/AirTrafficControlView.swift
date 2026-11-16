@@ -14,114 +14,114 @@ struct AirTrafficControlView: View {
     var body: some View {
         WithPerceptionTracking {
             @Perception.Bindable var store = store
-            VStack(spacing: 0) {
-                HStack(spacing: 0) {
-                    Text("Air Traffic Control").font(.system(size: 13, weight: .bold))
-                    Spacer(minLength: 8)
-                    Button { addRoute() } label: { Text("New Route").frame(width: 94) }
-                        .controlSize(.large)
+        VStack(spacing: 0) {
+            HStack(spacing: 0) {
+                Text("Air Traffic Control").font(.system(size: 13, weight: .bold))
+                Spacer(minLength: 8)
+                Button { addRoute() } label: { Text("New Route").frame(width: 94) }
+                    .controlSize(.large)
                         .roundedButtonBorder(radius: 6)
-                    Button { dismiss() } label: {
-                        Image(systemName: "xmark").font(.system(size: 15, weight: .light)).frame(width: 32, height: 32).contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .foregroundStyle(.secondary)
-                    .help("Close")
-                    .keyboardShortcut(.cancelAction)
-                    .padding(.leading, 24)
+                Button { dismiss() } label: {
+                    Image(systemName: "xmark").font(.system(size: 15, weight: .light)).frame(width: 32, height: 32).contentShape(Rectangle())
                 }
-                .frame(height: 76)
-                .padding(.top, 8)
-                Divider()
-                routes
-                Divider()
-                HStack(alignment: .firstTextBaseline, spacing: 0) {
-                    Text("Default").font(.system(size: 13))
-                        .frame(width: 104, alignment: .leading)
-                    destinationPicker($store.settings.defaultLinkDestination)
-                    Spacer(minLength: 0)
-                }
-                .padding(.leading, 36)
-                .frame(height: 90)
+                .buttonStyle(.plain)
+                .foregroundStyle(.secondary)
+                .help("Close")
+                .keyboardShortcut(.cancelAction)
+                .padding(.leading, 24)
             }
-            .padding(.horizontal, 24)
-            .frame(width: 508, height: 440)
-            // Arc opens the sheet with nothing focused; AppKit would select the first route's text.
-            .onAppear { DispatchQueue.main.async { NSApp.keyWindow?.makeFirstResponder(nil) } }
+            .frame(height: 76)
+            .padding(.top, 8)
+            Divider()
+            routes
+            Divider()
+            HStack(alignment: .firstTextBaseline, spacing: 0) {
+                Text("Default").font(.system(size: 13))
+                    .frame(width: 104, alignment: .leading)
+                destinationPicker($store.settings.defaultLinkDestination)
+                Spacer(minLength: 0)
+            }
+            .padding(.leading, 36)
+            .frame(height: 90)
         }
+        .padding(.horizontal, 24)
+        .frame(width: 508, height: 440)
+        // Arc opens the sheet with nothing focused; AppKit would select the first route's text.
+        .onAppear { DispatchQueue.main.async { NSApp.keyWindow?.makeFirstResponder(nil) } }
+    }
     }
 
     private var routes: some View {
         WithPerceptionTracking {
-            ScrollViewReader { proxy in
-                ScrollView(.vertical) {
-                    VStack(spacing: 24) {
-                        ForEach(store.settings.linkRoutes) { route in
+        ScrollViewReader { proxy in
+            ScrollView(.vertical) {
+                VStack(spacing: 24) {
+                    ForEach(store.settings.linkRoutes) { route in
                             WithPerceptionTracking {
-                                routeRow(route.id).id(route.id)
-                            }
-                        }
+                        routeRow(route.id).id(route.id)
                     }
-                    .padding(.top, 24)
-                    .padding(.bottom, 16)
-                    .padding(.leading, 31)
-                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
-                .overlay {
+                    }
+                .padding(.top, 24)
+                .padding(.bottom, 16)
+                .padding(.leading, 31)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .overlay {
                     WithPerceptionTracking {
-                        if store.settings.linkRoutes.isEmpty {
-                            Text("Add a route to open matching links from other apps in a chosen space.")
-                                .font(.system(size: 12)).foregroundStyle(.secondary)
-                                .multilineTextAlignment(.center)
-                                .frame(maxWidth: 300)
-                        }
-                    }
-                }
-                .onChange(of: store.settings.linkRoutes.last?.id) { id in
-                    guard let id, focusedRoute == id else { return }
-                    withAnimation { proxy.scrollTo(id, anchor: .bottom) }
+                if store.settings.linkRoutes.isEmpty {
+                    Text("Add a route to open matching links from other apps in a chosen space.")
+                        .font(.system(size: 12)).foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                        .frame(maxWidth: 300)
                 }
             }
-            .frame(maxHeight: .infinity)
+                }
+                .onChange(of: store.settings.linkRoutes.last?.id) { id in
+                guard let id, focusedRoute == id else { return }
+                withAnimation { proxy.scrollTo(id, anchor: .bottom) }
+            }
         }
+        .frame(maxHeight: .infinity)
+    }
     }
 
     private func routeRow(_ id: UUID) -> some View {
         WithPerceptionTracking {
-            VStack(alignment: .leading, spacing: 4) {
-                HStack(spacing: 8) {
-                    Label("URL", systemImage: "link")
-                        .labelStyle(RouteLabelStyle())
-                        .frame(width: 49, alignment: .leading)
-                        .accessibilityLabel("Link URL")
-                    Picker("Match", selection: binding(id, \.match)) {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 8) {
+                Label("URL", systemImage: "link")
+                    .labelStyle(RouteLabelStyle())
+                    .frame(width: 49, alignment: .leading)
+                    .accessibilityLabel("Link URL")
+                Picker("Match", selection: binding(id, \.match)) {
                         ForEach(LinkMatchStyle.allCases) { item in
                             WithPerceptionTracking { Text(item.label).tag(item) }
                         }
-                    }
-                    .labelsHidden()
-                    .frame(width: 110)
-                    TextField("URL", text: binding(id, \.text), prompt: Text("crabrowser.app"))
-                        .textFieldStyle(.roundedBorder)
-                        .focused($focusedRoute, equals: id)
-                        .frame(width: 210)
-                    Button { removeRoute(id) } label: {
-                        Image(systemName: "minus.circle.fill").font(.system(size: 13))
-                            .symbolRenderingMode(.palette)
-                            .foregroundStyle(.background, .secondary)
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Remove")
                 }
-                HStack(alignment: .firstTextBaseline, spacing: 8) {
-                    Label("Open in", systemImage: "arrow.turn.down.right")
-                        .labelStyle(RouteLabelStyle())
-                        .frame(width: 70, alignment: .leading)
-                    destinationPicker(binding(id, \.destination))
+                .labelsHidden()
+                .frame(width: 110)
+                TextField("URL", text: binding(id, \.text), prompt: Text("crabrowser.app"))
+                    .textFieldStyle(.roundedBorder)
+                    .focused($focusedRoute, equals: id)
+                    .frame(width: 210)
+                Button { removeRoute(id) } label: {
+                    Image(systemName: "minus.circle.fill").font(.system(size: 13))
+                        .symbolRenderingMode(.palette)
+                        .foregroundStyle(.background, .secondary)
                 }
-                .padding(.leading, 74)
+                .buttonStyle(.plain)
+                .accessibilityLabel("Remove")
             }
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Label("Open in", systemImage: "arrow.turn.down.right")
+                    .labelStyle(RouteLabelStyle())
+                    .frame(width: 70, alignment: .leading)
+                destinationPicker(binding(id, \.destination))
+            }
+            .padding(.leading, 74)
         }
+    }
     }
 
     /// Arc's destination menu: an "Open in Space" header over Most Recent Space and
@@ -129,57 +129,57 @@ struct AirTrafficControlView: View {
     /// popup below it names the space the window opens in (#258).
     private func destinationPicker(_ selection: Binding<LinkDestination>) -> some View {
         WithPerceptionTracking {
-            let spaces = store.orderedSpaces
-            func known(_ id: UUID?) -> UUID? { id.flatMap { id in spaces.contains { $0.id == id } ? id : nil } }
-            // A route to a deleted space opens in the most recent one; show it that way. The first
-            // popup shows any Little Window as "Little Window", and choosing it again keeps the space.
-            let shown = Binding<LinkDestination>(
-                get: {
-                    switch selection.wrappedValue {
-                    case .space(let sid) where known(sid) == nil: return .mostRecentSpace
-                    case .littleWindow: return .littleWindowInUse
-                    default: return selection.wrappedValue
-                    }
-                },
-                set: { new in
-                    if new.isLittleWindow, selection.wrappedValue.isLittleWindow { return }
-                    selection.wrappedValue = new
-                })
-            let littleSpace = Binding<UUID?>(
-                get: { if case .littleWindow(let sid) = selection.wrappedValue { return known(sid) } else { return nil } },
-                set: { selection.wrappedValue = .littleWindow(space: $0) })
-            return VStack(alignment: .leading, spacing: 4) {
-                Picker("Open in", selection: shown) {
-                    Section("Open in Space") {
-                        Text("Most Recent Space").tag(LinkDestination.mostRecentSpace)
-                        ForEach(spaces) { space in
+        let spaces = store.orderedSpaces
+        func known(_ id: UUID?) -> UUID? { id.flatMap { id in spaces.contains { $0.id == id } ? id : nil } }
+        // A route to a deleted space opens in the most recent one; show it that way. The first
+        // popup shows any Little Window as "Little Window", and choosing it again keeps the space.
+        let shown = Binding<LinkDestination>(
+            get: {
+                switch selection.wrappedValue {
+                case .space(let sid) where known(sid) == nil: return .mostRecentSpace
+                case .littleWindow: return .littleWindowInUse
+                default: return selection.wrappedValue
+                }
+            },
+            set: { new in
+                if new.isLittleWindow, selection.wrappedValue.isLittleWindow { return }
+                selection.wrappedValue = new
+            })
+        let littleSpace = Binding<UUID?>(
+            get: { if case .littleWindow(let sid) = selection.wrappedValue { return known(sid) } else { return nil } },
+            set: { selection.wrappedValue = .littleWindow(space: $0) })
+        return VStack(alignment: .leading, spacing: 4) {
+            Picker("Open in", selection: shown) {
+                Section("Open in Space") {
+                    Text("Most Recent Space").tag(LinkDestination.mostRecentSpace)
+                    ForEach(spaces) { space in
                             WithPerceptionTracking {
-                                Text(space.labeled).tag(LinkDestination.space(space.id))
-                            }
+                        Text(space.labeled).tag(LinkDestination.space(space.id))
+                    }
+                }
+                    }
+                Divider()
+                Text("Little Window").tag(LinkDestination.littleWindowInUse)
+            }
+            .labelsHidden()
+            .frame(width: 165)
+            if selection.wrappedValue.isLittleWindow {
+                Picker("Little Window space", selection: littleSpace) {
+                    Section("Little Window in") {
+                        Text("Most Recent Space").tag(UUID?.none)
+                        ForEach(spaces) { space in
+                                WithPerceptionTracking {
+                            Text(space.labeled).tag(UUID?.some(space.id))
                         }
                     }
-                    Divider()
-                    Text("Little Window").tag(LinkDestination.littleWindowInUse)
                 }
+                    }
                 .labelsHidden()
                 .frame(width: 165)
-                if selection.wrappedValue.isLittleWindow {
-                    Picker("Little Window space", selection: littleSpace) {
-                        Section("Little Window in") {
-                            Text("Most Recent Space").tag(UUID?.none)
-                            ForEach(spaces) { space in
-                                WithPerceptionTracking {
-                                    Text(space.labeled).tag(UUID?.some(space.id))
-                                }
-                            }
-                        }
-                    }
-                    .labelsHidden()
-                    .frame(width: 165)
-                    .help("The space the Little Window opens in: the page loads with its sign-ins, and ⌘O moves it there")
-                }
+                .help("The space the Little Window opens in: the page loads with its sign-ins, and ⌘O moves it there")
             }
         }
+    }
     }
 
     private func binding<T>(_ id: UUID, _ key: WritableKeyPath<LinkRoute, T>) -> Binding<T> {
@@ -207,11 +207,11 @@ struct AirTrafficControlView: View {
 private struct RouteLabelStyle: LabelStyle {
     func makeBody(configuration: Configuration) -> some View {
         WithPerceptionTracking {
-            HStack(spacing: 6) {
-                configuration.icon.font(.system(size: 12))
-                configuration.title.font(.system(size: 13))
-            }
-            .foregroundStyle(.secondary)
+        HStack(spacing: 6) {
+            configuration.icon.font(.system(size: 12))
+            configuration.title.font(.system(size: 13))
         }
+        .foregroundStyle(.secondary)
     }
+}
 }

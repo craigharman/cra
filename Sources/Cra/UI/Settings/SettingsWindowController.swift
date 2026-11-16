@@ -172,28 +172,28 @@ struct SettingsNavPill: View {
 
     var body: some View {
         WithPerceptionTracking {
-            HStack(spacing: 0) {
-                arrow("chevron.left", enabled: !nav.back.isEmpty) { nav.goBack() }
-                arrow("chevron.right", enabled: !nav.forward.isEmpty) { nav.goForward() }
-            }
-            .frame(width: SettingsMetrics.navPillSize.width, height: SettingsMetrics.navPillSize.height)
-            .background(Capsule().fill(Color.black.opacity(scheme == .dark ? 0.25 : 0.06)))
+        HStack(spacing: 0) {
+            arrow("chevron.left", enabled: !nav.back.isEmpty) { nav.goBack() }
+            arrow("chevron.right", enabled: !nav.forward.isEmpty) { nav.goForward() }
         }
+        .frame(width: SettingsMetrics.navPillSize.width, height: SettingsMetrics.navPillSize.height)
+        .background(Capsule().fill(Color.black.opacity(scheme == .dark ? 0.25 : 0.06)))
+    }
     }
 
     private func arrow(_ symbol: String, enabled: Bool, action: @escaping () -> Void) -> some View {
         WithPerceptionTracking {
-            Button(action: action) {
-                Image(systemName: symbol)
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(Color.primary.opacity(enabled ? 0.75 : 0.3))
-                    .frame(width: SettingsMetrics.navPillSize.width / 2, height: SettingsMetrics.navPillSize.height)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .disabled(!enabled)
+        Button(action: action) {
+            Image(systemName: symbol)
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(Color.primary.opacity(enabled ? 0.75 : 0.3))
+                .frame(width: SettingsMetrics.navPillSize.width / 2, height: SettingsMetrics.navPillSize.height)
+                .contentShape(Rectangle())
         }
+        .buttonStyle(.plain)
+        .disabled(!enabled)
     }
+}
 }
 
 /// The toolbar row over the content: pill 10 in from the split, title text 10 after it.
@@ -201,15 +201,15 @@ struct SettingsToolbarRow: View {
     let nav: SettingsNavigation
     var body: some View {
         WithPerceptionTracking {
-            HStack(spacing: 10) {
-                SettingsNavPill(nav: nav)
-                Text(nav.pane.title).font(.system(size: 15, weight: .bold))
-                Spacer(minLength: 0)
-            }
-            .padding(.leading, 10)
-            .frame(height: SettingsMetrics.toolbarHeight)
+        HStack(spacing: 10) {
+            SettingsNavPill(nav: nav)
+            Text(nav.pane.title).font(.system(size: 15, weight: .bold))
+            Spacer(minLength: 0)
         }
+        .padding(.leading, 10)
+        .frame(height: SettingsMetrics.toolbarHeight)
     }
+}
 }
 
 /// Dia's source list: 28 pt rows, the selection 10 pt inside the sidebar's edges with a 7 pt
@@ -222,42 +222,42 @@ struct SettingsSidebar: View {
 
     var body: some View {
         WithPerceptionTracking {
-            VStack(spacing: 0) {
+        VStack(spacing: 0) {
                 ForEach(SettingsPane.allCases) { item in
                     WithPerceptionTracking { row(item) }
                 }
-                Spacer(minLength: 0)
-            }
-            .padding(.horizontal, 10)
-            .padding(.top, 12)
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            Spacer(minLength: 0)
         }
+        .padding(.horizontal, 10)
+        .padding(.top, 12)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+    }
     }
 
     private func row(_ p: SettingsPane) -> some View {
         WithPerceptionTracking {
-            let selected = nav.pane == p
-            let key = activeState == .key
-            return Button { nav.show(p) } label: {
-                HStack(spacing: 9) {
-                    Image(systemName: p.symbol)
-                        .font(.system(size: 15))
-                        .frame(width: 20, height: 20)
-                        .foregroundStyle(selected && key ? Color.white : Color.primary)
-                    Text(p.title)
-                        .font(.system(size: 13))
-                        .foregroundStyle(selected ? (key ? Color.white : Color.accentColor) : Color.primary)
-                    Spacer(minLength: 0)
-                }
-                .padding(.leading, 10)
-                .frame(height: 28)
-                .background(RoundedRectangle(cornerRadius: 7, style: .continuous)
-                    .fill(selected ? (key ? Color.accentColor : Color.primary.opacity(0.1)) : Color.clear))
-                .contentShape(Rectangle())
+        let selected = nav.pane == p
+        let key = activeState == .key
+        return Button { nav.show(p) } label: {
+            HStack(spacing: 9) {
+                Image(systemName: p.symbol)
+                    .font(.system(size: 15))
+                    .frame(width: 20, height: 20)
+                    .foregroundStyle(selected && key ? Color.white : Color.primary)
+                Text(p.title)
+                    .font(.system(size: 13))
+                    .foregroundStyle(selected ? (key ? Color.white : Color.accentColor) : Color.primary)
+                Spacer(minLength: 0)
             }
-            .buttonStyle(.plain)
+            .padding(.leading, 10)
+            .frame(height: 28)
+            .background(RoundedRectangle(cornerRadius: 7, style: .continuous)
+                .fill(selected ? (key ? Color.accentColor : Color.primary.opacity(0.1)) : Color.clear))
+            .contentShape(Rectangle())
         }
+        .buttonStyle(.plain)
     }
+}
 }
 
 struct SettingsContent: View {
@@ -266,29 +266,29 @@ struct SettingsContent: View {
 
     var body: some View {
         WithPerceptionTracking {
-            VStack(spacing: 0) {
-                SettingsToolbarRow(nav: nav)
-                Group {
-                    switch nav.pane {
-                    case .general: GeneralPane()
-                    case .tabs: TabsPane()
-                    case .links: LinksPane()
-                    case .max: MaxPane()
-                    case .privacy: PrivacyPane(actions: actions)
-                    case .profiles: ProfilesPane(nav: nav, actions: actions)
-                    case .extensions: ExtensionsPane(actions: actions)
-                    case .plugins: PluginsPane()
-                    case .shortcuts: ShortcutsPane()
-                    case .performance: PerformancePane(nav: nav, actions: actions)
-                    case .advanced: AdvancedPane(actions: actions)
-                    }
+        VStack(spacing: 0) {
+            SettingsToolbarRow(nav: nav)
+            Group {
+                switch nav.pane {
+                case .general: GeneralPane()
+                case .tabs: TabsPane()
+                case .links: LinksPane()
+                case .max: MaxPane()
+                case .privacy: PrivacyPane(actions: actions)
+                case .profiles: ProfilesPane(nav: nav, actions: actions)
+                case .extensions: ExtensionsPane(actions: actions)
+                case .plugins: PluginsPane()
+                case .shortcuts: ShortcutsPane()
+                case .performance: PerformancePane(nav: nav, actions: actions)
+                case .advanced: AdvancedPane(actions: actions)
                 }
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                // Scroll views can draw into the ignored titlebar safe area. Keep every
-                // pane inside its viewport below the fixed navigation row.
-                .clipped()
             }
-            .ignoresSafeArea(.container, edges: .top)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            // Scroll views can draw into the ignored titlebar safe area. Keep every
+            // pane inside its viewport below the fixed navigation row.
+            .clipped()
         }
+        .ignoresSafeArea(.container, edges: .top)
     }
+}
 }

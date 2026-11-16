@@ -1837,7 +1837,7 @@ enum StoreTests {
         doc.spaces[0].profileID = gone
         b.replace(document: doc)
         expect(b.orderedSpaces[0].profileID == nil && b.integrityProblems().isEmpty, "a space on a missing profile falls back to Default")
-
+    
         iCloudSync(first: a, firstClock: clockA)
     }
 

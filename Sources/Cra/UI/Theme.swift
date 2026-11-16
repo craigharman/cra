@@ -220,13 +220,13 @@ struct NoiseOverlay: View {
     let isDark: Bool
     var body: some View {
         WithPerceptionTracking {
-            Image(nsImage: NoiseTexture.image)
-                .resizable(resizingMode: .tile)
-                .opacity(amount * (isDark ? 0.1 : 0.09))
-                .blendMode(isDark ? .screen : .multiply)
-                .allowsHitTesting(false)
-        }
+        Image(nsImage: NoiseTexture.image)
+            .resizable(resizingMode: .tile)
+            .opacity(amount * (isDark ? 0.1 : 0.09))
+            .blendMode(isDark ? .screen : .multiply)
+            .allowsHitTesting(false)
     }
+}
 }
 
 struct SpaceBackground: View {
@@ -234,27 +234,27 @@ struct SpaceBackground: View {
 
     var body: some View {
         WithPerceptionTracking {
-            gradient
-        }
+        gradient
+    }
     }
 
     private var gradient: some View {
         WithPerceptionTracking {
-            let scale = palette.vibrant ? CraTuning.shared.gradientAlphaScale : 1
-            let n = palette.gradientColors.count
-            let stops = palette.gradientColors.enumerated().map { i, c -> Gradient.Stop in
-                let t = n > 1 ? Double(i) / Double(n - 1) : 0
-                let top = palette.gradientAlpha * (palette.vibrant ? CraTuning.shared.gradientAlphaTopScale : 1)
-                let bottom = palette.gradientAlphaBottom * (palette.vibrant ? CraTuning.shared.gradientAlphaBottomScale : 1)
-                let a = (top + (bottom - top) * t) * scale
-                return Gradient.Stop(color: c.opacity(min(1, a)), location: t)
-            }
-            return ZStack {
-                LinearGradient(stops: stops, startPoint: .top, endPoint: .bottom)
-                NoiseOverlay(amount: palette.noise, isDark: palette.isDark)
-            }
-            .ignoresSafeArea()
+        let scale = palette.vibrant ? CraTuning.shared.gradientAlphaScale : 1
+        let n = palette.gradientColors.count
+        let stops = palette.gradientColors.enumerated().map { i, c -> Gradient.Stop in
+            let t = n > 1 ? Double(i) / Double(n - 1) : 0
+            let top = palette.gradientAlpha * (palette.vibrant ? CraTuning.shared.gradientAlphaTopScale : 1)
+            let bottom = palette.gradientAlphaBottom * (palette.vibrant ? CraTuning.shared.gradientAlphaBottomScale : 1)
+            let a = (top + (bottom - top) * t) * scale
+            return Gradient.Stop(color: c.opacity(min(1, a)), location: t)
         }
+        return ZStack {
+            LinearGradient(stops: stops, startPoint: .top, endPoint: .bottom)
+            NoiseOverlay(amount: palette.noise, isDark: palette.isDark)
+        }
+        .ignoresSafeArea()
+    }
     }
 
     /// Gradient stops as drawn: each colour carries the palette's top-to-bottom alpha.
