@@ -125,6 +125,10 @@ jobs:
       - name: Lint
         run: scripts/lint.py
 
+      # build.sh fetches Sparkle, but the tests run first and test-update-channels.sh links it.
+      - name: Sparkle
+        run: scripts/fetch-sparkle.sh
+
       - name: Tests
         run: scripts/test.sh
 

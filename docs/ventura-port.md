@@ -92,6 +92,9 @@ Rules that keep that merge clean:
   would make every upstream edit to those views a conflict.
 - A new Ventura rule goes in `scripts/ventura-perceptify.py`, not in a hand edit, so the next
   release gets it too. `scripts/ventura-perceptify.py --check` lists files it would change.
+- Every release here is its own Stable (`CRA_STABLE_VERSION` in release.yml), so its feeds hold
+  only itself, with no `minimumUpdateVersion`. Upstream's channels would offer a Ventura copy
+  upstream's Stable build (macOS 14, upstream's key) and hold its newest back from CEF builds.
 - Releases built here read this fork's update feed (`scripts/build.sh`, `GITHUB_REPOSITORY`)
   and its own Sparkle key (`SPARKLE_PUBLIC_KEY` variable, `SPARKLE_PRIVATE_KEY` secret), so a
   Ventura copy never updates itself to an upstream build that needs macOS 14.

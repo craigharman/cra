@@ -131,6 +131,9 @@ jobs:
           CRA_GOOGLE_API_KEY: ${{ secrets.CRA_GOOGLE_API_KEY }}
           # Fork: the public half of SPARKLE_PRIVATE_KEY (repository variable).
           SPARKLE_PUBLIC_KEY: ${{ vars.SPARKLE_PUBLIC_KEY }}
+          # Fork: every release is its own Stable (docs/ventura-port.md). Upstream's Stable item is
+          # its macOS 14 build signed with its key, and its New item would skip this fork's CEF builds.
+          CRA_STABLE_VERSION: ${{ env.CRA_VERSION }}
           # The repository variable CRA_ALLOW_OLD_ENGINE=1 ships the pinned engine past release.sh's check
           # (docs/release.md). Delete the variable after the release.
           CRA_ALLOW_OLD_ENGINE: ${{ vars.CRA_ALLOW_OLD_ENGINE }}
