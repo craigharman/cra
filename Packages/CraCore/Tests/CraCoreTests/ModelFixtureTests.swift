@@ -151,6 +151,30 @@ struct ModelFixtureTests {
         #expect(legacy == legacyRecorded)
     }
 
+    /// A window quit in macOS full screen opens in full screen again. Files from before #426
+    /// have no `fullScreen` and open windowed, as they always did.
+    @Test(.bug("https://github.com/VictorKildahl/cra/issues/426"))
+    func windowsRememberFullScreen() throws {
+        let (loaded, recorded) = try Self.load("windows.json", as: WindowPrefs.self)
+        #expect(loaded.windows.map(\.fullScreen) == [true, false])
+        #expect(recorded.windows.map(\.fullScreen) == [true, false])
+        #expect(try Self.roundTrips(loaded))
+        let legacy = try Self.load("windows-legacy.json", as: WindowPrefs.self).loaded
+        #expect(legacy.windows.allSatisfy { !$0.fullScreen })
+    }
+
+    /// sync-history.json (#474): the last bundles sync wrote or applied, each a whole sidebar, so a
+    /// bundle the other Mac wrote from one of them is merged rather than applied whole.
+    @Test func syncHistoryLoadsAsRecorded() throws {
+        let (loaded, recorded) = try Self.load("sync-history.json", as: SyncHistory.self)
+        #expect(loaded == recorded)
+        #expect(loaded.ids.map { $0.uuidString.suffix(2) } == ["01", "02"])
+        #expect(try Self.roundTrips(loaded))
+        let saved = try #require(JSONSerialization.jsonObject(with: Self.encoder.encode(loaded)) as? [String: Any])
+        let file = try #require(JSONSerialization.jsonObject(with: Self.data("recorded", "sync-history.json")) as? [String: Any])
+        #expect(NSDictionary(dictionary: saved).isEqual(to: file))
+    }
+
     @Test func archiveHistoryAndRankingLoadAsRecorded() throws {
         let archive = try Self.load("archive.json", as: [ArchivedItem].self)
         #expect(archive.loaded == archive.recorded)

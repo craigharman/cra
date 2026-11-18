@@ -11,6 +11,9 @@ keeps adding views; ventura-sync.yml runs this after each merge so they get the 
 - in each type that touches observable state (an observable class by name, an
   @Environment(Model.self), a bindable, AppDelegate), wrap every `some View` body and helper,
   ForEach row closure and popover/sheet content in WithPerceptionTracking { }
+- standalone test harnesses (scripts/test-*.sh) that compile a file importing Perception
+  source scripts/perception-test-flags.sh and pass its flags (and VenturaCompat.swift);
+  Tests/*.swift get the attribute and import renames only, so locked test bodies keep their hashes
 
 Wrapped code keeps its indentation, so upstream's later edits to those lines still merge.
 Idempotent: it only adds what's missing.
@@ -224,6 +227,54 @@ def transform(path):
     return src
 
 
+VENTURA_COMPAT = 'Sources/Cra/UI/VenturaCompat.swift'
+TRACKING_SHIM = 'Tests/Support/VenturaObservationTracking.swift'
+COMPAT_API = re.compile(r'\b(?:startFrameTicker|FrameTicker|roundedButtonBorder|presentationBackgroundIfAvailable|bringForward)\b'
+                        r'|CASpringAnimation\.perceptual\b')
+
+
+def harness(path):
+    """A standalone test harness (swiftc on app sources) that compiles a file importing Perception
+    gets scripts/perception-test-flags.sh: macOS 13 target, Perception's archive and macro, its
+    stub modules built for the same target, and VenturaCompat.swift when a source needs it."""
+    import glob
+    src = open(path).read()
+    if 'CRA_TEST_SWIFTC_FLAGS:-}' not in src:
+        return src
+    commands = re.findall(r'xcrun swiftc(?:[^\n]*\\\n)*[^\n]*', src)
+    sources = set()
+    for cmd in commands:
+        for token in re.findall(r'(?:Sources|Packages|Tests)/[^\s"\\]+\.swift', cmd):
+            sources.update(glob.glob(token))
+    texts = [open(p).read() for p in sorted(sources)]
+    if not any(re.search(r'^import Perception$', t, re.M) for t in texts):
+        return src
+    if 'source scripts/perception-test-flags.sh' not in src:
+        src = re.sub(r'^(cd "\$\(dirname "\$0"\)/\.\."\n)', r'\1source scripts/perception-test-flags.sh\n', src, count=1, flags=re.M)
+    src = re.sub(r'\$\{CRA_TEST_SWIFTC_FLAGS:-\}(?! "\$\{CRA_PERCEPTION_SWIFTC_FLAGS\[@\]\}")',
+                 '${CRA_TEST_SWIFTC_FLAGS:-} "${CRA_PERCEPTION_SWIFTC_FLAGS[@]}"', src)
+    # Stub modules (CraCEF and the like) for the same target, or the harness can't import them.
+    src = re.sub(r'^(xcrun swiftc -swift-version 5)(?![^\n]*(?:-target|CRA_PERCEPTION_SWIFTC_FLAGS))',
+                 r'\1 -target "$CRA_TEST_TARGET"', src, flags=re.M)
+    for extra, needed in [(VENTURA_COMPAT, any(COMPAT_API.search(t) for t in texts)),
+                          (TRACKING_SHIM, any(re.search(r'(?<![\w.])withObservationTracking\s*\{', t)
+                                             and 'func withObservationTracking' not in t for t in texts))]:
+        if needed and extra not in sources:
+            src = re.sub(r'(\$\{CRA_TEST_SWIFTC_FLAGS:-\}(?:[^\n]*\\\n)*?[^\n]*?) -o ',
+                         lambda m: m.group(1) + ' ' + extra + ' -o ', src, count=1)
+    return src
+
+
+def test_source(path):
+    """Upstream's test sources: only declarations and imports, so the test bodies (hashed in
+    Tests/promises.lock) stay as written; their withObservationTracking calls get TRACKING_SHIM."""
+    src = open(path).read()
+    src = re.sub(r'^import Observation\n', 'import Perception\n' if 'import Perception' not in src else '', src, flags=re.M)
+    src = re.sub(r'@ObservationIgnored\b', '@PerceptionIgnored', src)
+    src = re.sub(r'@Observable\b', '@Perceptible', src)
+    return src
+
+
 def main():
     import os
     import subprocess
@@ -237,6 +288,24 @@ def main():
     changed = []
     for path in files:
         new = transform(path)
+        if new != open(path).read():
+            changed.append(path)
+            if not check:
+                open(path, 'w').write(new)
+    tests = subprocess.run(['git', 'ls-files', 'Tests/*.swift'], capture_output=True, text=True, check=True).stdout.split()
+    for path in tests:
+        new = test_source(path)
+        if new != open(path).read():
+            changed.append(path)
+            if not check:
+                open(path, 'w').write(new)
+    # After the sources: a harness's need for Perception depends on their rewritten imports.
+    scripts = subprocess.run(['git', 'ls-files', 'scripts/*.sh', 'Tests/*.sh'],
+                             capture_output=True, text=True, check=True).stdout.split()
+    for path in scripts:
+        if path == 'scripts/perception-test-flags.sh':
+            continue
+        new = harness(path)
         if new != open(path).read():
             changed.append(path)
             if not check:

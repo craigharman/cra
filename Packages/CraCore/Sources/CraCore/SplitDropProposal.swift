@@ -50,7 +50,8 @@ public enum SplitDropProposal {
     /// proposes nothing there and the page keeps the drag.
     /// - `ids`, `frames`: the panes in order and where they are without the drop region.
     /// - `region`: where the region is now, laid out for `current`, the proposal shown now.
-    /// - `sidebarSide`: the sidebar sits against the area's left edge (docked, not floating).
+    /// - `sidebarSide`: the sidebar sits against the area's edge (docked, not floating): its left
+    ///   one, or its right one with `sidebarOn: .right` (#464).
     /// - `link`: a link, not a tab: only a pane's edges take it (`linkEdgeBand`).
     ///
     /// Arc 1.173.1, measured: on a lone page the edge nearest the pointer decides, its left or
@@ -61,12 +62,21 @@ public enum SplitDropProposal {
     /// region, once open, keeps the drag while the pointer stays on it, so it doesn't flip back
     /// and forth as the panes make room for it. A split of four takes no more panes.
     public static func propose(at point: CGPoint, ids: [UUID], frames: [UUID: CGRect], orientation: SplitOrientation,
-                               area: CGRect, region: CGRect?, current: Target?, sidebarSide: Bool, link: Bool = false) -> Target? {
+                               area: CGRect, region: CGRect?, current: Target?, sidebarSide: Bool, sidebarOn side: SidebarSide = .left,
+                               link: Bool = false) -> Target? {
         guard !ids.isEmpty, area.contains(point) else { return nil }
-        if sidebarSide, point.x < area.minX + sidebarSideBand { return nil }
+        if sidebarSide, side.place(point, in: area).x < area.minX + sidebarSideBand { return nil }
         let full = ids.count >= maximumPanes
         if !full, case .insert? = current, let region,
            region.insetBy(dx: -SplitPaneLayout.Constants.gap / 2, dy: -SplitPaneLayout.Constants.gap / 2).contains(point) {
+            // A lone page's region reaches its middle line, so a drag that crossed the middle on
+            // its way to an edge would keep the region it opened there: reaching another edge's
+            // band, a fifth of the page, wins.
+            if ids.count == 1, let f = frames[ids[0]], let edge = nearestEdge(point, in: f),
+               edge.distance <= edge.extent * paneEdgeShare, !link || edge.distance <= linkEdgeBand,
+               .insert(edge.insert) != current {
+                return .insert(edge.insert)
+            }
             return current
         }
         // The pane under the pointer, or in a gap the nearest one.
@@ -74,14 +84,8 @@ public enum SplitDropProposal {
         guard let (index, f) = ids.enumerated().compactMap({ i, id in frames[id].map { (i, $0) } })
             .min(by: { distance(point, $0.1) < distance(point, $1.1) }), distance(point, f) <= gap else { return nil }
         if ids.count == 1 {
-            let edges: [(CGFloat, Insert)] = [
-                (point.x - f.minX, Insert(index: 0, orientation: .horizontal)),
-                (f.maxX - point.x, Insert(index: 1, orientation: .horizontal)),
-                (f.maxY - point.y, Insert(index: 0, orientation: .vertical)),
-                (point.y - f.minY, Insert(index: 1, orientation: .vertical)),
-            ]
-            guard let nearest = edges.min(by: { $0.0 < $1.0 }), !link || nearest.0 <= linkEdgeBand else { return nil }
-            return .insert(nearest.1)
+            guard let nearest = nearestEdge(point, in: f), !link || nearest.distance <= linkEdgeBand else { return nil }
+            return .insert(nearest.insert)
         }
         let horizontal = orientation == .horizontal
         // Along the split: from the pane's first side (left, or top) to its last.
@@ -91,6 +95,18 @@ public enum SplitDropProposal {
         if along < edge { return full ? nil : .insert(Insert(index: index, orientation: orientation)) }
         if along > length - edge { return full ? nil : .insert(Insert(index: index + 1, orientation: orientation)) }
         return link ? nil : .replace(index: index)
+    }
+
+    /// A lone page's edge nearest `point`: the region it opens, how far away it is, and the page's
+    /// extent across that edge (its width for the sides, its height for the top and bottom).
+    private static func nearestEdge(_ point: CGPoint, in f: CGRect) -> (insert: Insert, distance: CGFloat, extent: CGFloat)? {
+        let edges: [(Insert, CGFloat, CGFloat)] = [
+            (Insert(index: 0, orientation: .horizontal), point.x - f.minX, f.width),
+            (Insert(index: 1, orientation: .horizontal), f.maxX - point.x, f.width),
+            (Insert(index: 0, orientation: .vertical), f.maxY - point.y, f.height),
+            (Insert(index: 1, orientation: .vertical), point.y - f.minY, f.height),
+        ]
+        return edges.min(by: { $0.1 < $1.1 }).map { ($0.0, $0.1, $0.2) }
     }
 
     private static func distance(_ p: CGPoint, _ r: CGRect) -> CGFloat {

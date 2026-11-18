@@ -20,6 +20,11 @@ built release app with a test profile. Note anything that fails in the release's
   name, its colour and nickname, EARLY '26, a months stamp after a month), Share / Save / Copy under it (the saved PNG is the card at 2x),
   and Share Cra: the sheet's COPY LINK puts the tagged crabrowser.app link on the clipboard and Share… offers Messages and Mail. (The scenario checks the
   size, the tab order and the first tab; this is how it looks.)
+- **Displays:** On a Mac with two displays of different scale (a 2x and a 1x), drag the window from one display to the other and
+  back, several times, by the strip above the toolbar, by the toolbar's URL and by the sidebar's top next to the traffic lights:
+  the window stays under the pointer the whole way, with no jump at the crossing and no flicker. AppKit's screen-layout adjustment
+  ran mid-drag for a window a window controller owns (16 Nov 2026); `CraWindow` skips it for moves the window server reports. The
+  `window-frame-adjust` scenario only checks that answer is in place; a test copy never crosses a display.
 
 - **#155:** a space on Auto, with one colour or two, changes look when macOS switches between
   light and dark. A space on Light or Dark doesn't.
@@ -33,6 +38,11 @@ built release app with a test profile. Note anything that fails in the release's
 - **#6:** a new window's empty card has rounded corners.
 - **#24:** edge to edge, there is no margin and the card is square, with the sidebar shown and
   hidden.
+- **#464:** with Settings ▸ Tabs ▸ Sidebar on the right, the sidebar and its traffic lights sit on the
+  right, ⌘S slides it out to the right and back, and dragging its left edge resizes it (snap and
+  drag-to-hide too). Hidden, the right edge brings it out on Arc's spring with its shadow and the
+  window's rounded corners clipping it; folder, pinned-tab and favorite previews open to its left.
+  (The scenario checks where things are; this is how the motion looks.)
 - **#10:** neighbouring tab highlights keep a 5 pt gap.
 - **#11:** the Library glyph is centred in its hover square.
 - **#39:** the header chevron is about 12.5 pt and points right when the pinned tabs are
@@ -63,9 +73,10 @@ built release app with a test profile. Note anything that fails in the release's
 
 - **#393, Ask on Page:** with Apple Intelligence on and Settings ▸ Max ▸ Ask on Page on, press ⌘F on a
   long article: the card reads "Find or ask…"; typing a word finds it (count, ↑ ↓, highlights in the
-  page). Type a question and press Ask (or Return): the question in the space's colour, "This page was
-  long, so I read the first N%.", an answer with a quote on a rule. Find on Page highlights and scrolls to
-  the quote in the page, or says "Quote not found". Ask a follow-up; past 450 pt the conversation scrolls
+  page). Type a question: Return asks once the count says 0 (Ask asks at once). The question in the space's
+  colour, "This page was long, so I read the first N%.", an answer with its key words in bold and a quote on
+  a rule. Find on Page selects and scrolls to the whole quote in the page, also one across a Wikipedia "[3]";
+  a quote the page doesn't have says "Quote not found" when the answer is done. Ask a follow-up; past 450 pt the conversation scrolls
   with fades. Esc or ✕ closes it and the next ⌘F starts over. Compare with Arc's card on the same page
   (Arc's own numbers are in arc-reverse-engineering.md; its placement, corner and colours weren't read).
 
@@ -73,9 +84,15 @@ built release app with a test profile. Note anything that fails in the release's
   salvador succeed?"), then "Summarize the key points of this article in bullet points": the second answer
   is a summary, not the first answer again, and no answer starts with "BEGIN DIALOGUE", "Human:" or a made-up
   question. Then a factual follow-up gets its own quote. The model is on-device and varies, so ask a few times.
+  On a release-notes page (crabrowser.app's 0.1.43 notes), ask "summarize the top features", then "list out
+  all the features released today": each answer is a list of at most eight short points, one per line, with
+  no quotes and no Find on Page, naming more than the first feature and no point twice. "Summarize it with
+  quotes" still quotes the page.
 
 - **Ask on Page, long answers and unanswerable questions:** ask a long article something it doesn't say
-  ("why did el salvador succeed?"): the answer never quotes a solar-power page or J.W. Peters. Ask for "the
+  ("why did el salvador succeed?"): the answer never quotes a solar-power page or J.W. Peters. Known on
+  the on-device model (16 Nov 2026): it often adds page quotes that don't answer such a question, and it
+  refuses some topics (slavery, disasters, religion) with "Sorry, I encountered an error". Ask for "the
   key points of this entire article in detailed bullet points": the window and the page keep scrolling smoothly
   while it writes, and the answer never vanishes and starts over.
 
@@ -114,6 +131,9 @@ built release app with a test profile. Note anything that fails in the release's
 - **#196:** hover a Today tab and move onto its ✕ several times. The ✕ never vanishes before
   the click.
 - **#7:** click a tab while moving the pointer a few points on a trackpad. It opens.
+- **#429:** two windows on pages with a text field. Press ⌘L in the first, then click the second's
+  field without closing the bar, and type and paste. The text lands in the second window, never the
+  first. Do the same from a Little Window's bar.
 - **Row press:** next to Arc, hold the button on a pinned tab, a Today tab, a split, New Tab and a
   Favorites tile. Each pushes in slightly about its centre (a tile a little more) and springs back
   on release; a drag doesn't leave it pushed in, a double-click on a tab dips once, folders don't move.
@@ -139,6 +159,12 @@ built release app with a test profile. Note anything that fails in the release's
   history the arrow never shows; a tab with pages behind it swipes through those first. The
   `swipe-back` scenario asks the swipe's two questions (`cra://debug?swipeBack=`); only a finger
   makes the gesture.
+- **#495:** open a Little Window (⌥⌘N, then a page, or a link from another app) and swipe back with
+  two fingers over its page: Chromium's back arrow shows, and letting go closes the window, as ⌘[
+  does. A page it went on to comes first; a Peek never closes this way. The
+  `little-window-swipe-back` scenario asks the swipe's questions (`cra://debug?littleSwipeBack=`).
+  The same swipe over the window's address bar does the same, and a swipe to the left there goes
+  forward (`little-window-bar-swipe` feeds the bar trackpad events, `cra://debug?littleBarSwipe=`).
 - **#12:** a two-finger swipe in the hidden sidebar (⌘S) switches spaces, and the next space
   draws mid-swipe. There is one link bubble only, and the dashed ring shows only on a
   cross-space keyboard switch.
@@ -168,6 +194,16 @@ built release app with a test profile. Note anything that fails in the release's
   a normal tab, a pinned tab, a target=_blank link and a WebKit tab (a DRM site, whose page gets no posted click). With the switch off, ⌥⌘-click opens Split View (#298);
   with ⇧ or ⌃ down as well, it is another click. (`option-command-click-little-window` posts the click through
   the app's event queue; a click from the hardware, with the keys held on the keyboard, is this line.)
+- **#435:** with Settings ▸ Links ▸ "Hide the Little Window toolbar until you need it" on, open a Little Window
+  over another app and rest the pointer at its top edge: the bar and the traffic lights slide in over the page,
+  which doesn't move; move down past the bar and they go. Open "Open in"'s list and the command bar from the bar:
+  it stays out while they are open. (`little-window-toolbar-auto-hide` checks the layout, the strip and the keep
+  zone through `cra://debug`; the real pointer's events over the page's view are this line.)
+- **#493:** with Settings ▸ Links ▸ "Hide the Peek toolbar until you need it" on, Shift-click a link: the Peek's
+  page fills the card. Rest the pointer at the card's top edge: its bar slides in over the page, which doesn't move;
+  move down past the bar and it goes. ⌘L opens the address with the bar away, and ✕, Expand and Add to Split beside
+  the card still work. (`peek-toolbar-auto-hide` checks the layout, the strip and the keep zone through
+  `cra://debug`; the real pointer's events over the card are this line.)
 - **#381:** click a link to another site in a favorite, next to Arc doing the same: the peeked page's
   favicon springs onto the tile's top right corner on a white square (black in a dark space), 4 pt
   past the corner, with a soft shadow, and springs off when the Peek closes. Check a split favorite
@@ -233,6 +269,10 @@ built release app with a test profile. Note anything that fails in the release's
   PiP and coming back closes it. The tab shows the recording dot and doesn't sleep.
 - **#134:** with another app in front, the PiP edges show resize cursors, and a click on play
   doesn't move the window.
+- **#516:** on a trackpad, swipe the PiP with two fingers hard into each edge of the screen, into
+  the menu bar and into the Dock, and keep pushing before you lift. The window stops with the hidden
+  pointer still on it, then flies into a corner on the lift, and the pointer shows again there.
+  The CraCore test covers where it stops; only real fingers show that the lift still reaches it.
 - **#246:** a YouTube video's PiP shows no Chrome strip (site icon, host, dark top band) at any
   point, also in the first seconds; with the pointer away it is the bare video. On hover: Back to
   Tab on the left (with its words from 400 pt wide), the host centred and whole, Close on the
@@ -273,6 +313,8 @@ built release app with a test profile. Note anything that fails in the release's
 - **#89:** in developer mode the ⌄ chevron lists Refresh ⌘R, Force Refresh ⇧⌘R, Clear Cookies
   and Refresh, Clear Cache and Refresh, View Source ⌥⌘U and Developer Tools ⌥⌘I. Tab row
   context menus show their shortcuts.
+  A right-click or ⌃-click on the toolbar's ↻ shows the same menu, outside developer mode too
+  (#517); a plain click still reloads, and a split pane's ↻ has no menu.
 - **#265:** signed in to a paid Claude plan, Claude in Chrome's toolbar button opens its panel
   and Claude works in it: no "Claude isn't available on this page" and no "Can't reach Claude
   in Chrome". The scenario covers what the extension checks, but only an account gets past
@@ -310,6 +352,10 @@ built release app with a test profile. Note anything that fails in the release's
   hand. The window stays put. With the sidebar hidden, the pointer at the top of the screen
   reveals the title bar with the traffic lights in it. The `fullscreen-window-chrome` scenario
   checks the window's flags; only a hand drag shows that AppKit honours them.
+- **Blocked requests:** with Block Ads & Trackers on, ziplyfiber.com, fidelity.com and
+  allstate.com show their pages. They stayed white while a blocked request was cancelled instead of
+  failed: Adobe Target hides the page until its request ends. (The scenario checks the failure and
+  that the blocked host is never asked; this needs the real sites.)
 
 ### Sync
 

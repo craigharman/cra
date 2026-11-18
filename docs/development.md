@@ -6,7 +6,7 @@ Notes for working on the code. How to send a change is in
 
 ## Build
 
-    scripts/build.sh          # fetches CEF on first run, builds build/Cra.app
+    scripts/build.sh          # fetches the engine on first run, builds build/Cra.app
     scripts/build.sh debug    # debug build
     scripts/run.sh            # build if needed, then open; --rebuild [debug] forces a build
     scripts/dev.sh            # dev loop: debug CraDev.app, rebuilds + relaunches on save (~4 s)
@@ -17,28 +17,35 @@ Notes for working on the code. How to send a change is in
 `just build debug` runs `scripts/build.sh debug`. CI calls the scripts directly, and so can
 you.
 
-Requirements: macOS 14+ on Apple silicon, Xcode 16+, CMake (`brew install cmake`), about
-1 GB of disk for CEF and the build products. `CRA_ARCH=x86_64 scripts/build.sh` cross-compiles the
+Requirements: macOS 14+ on Apple silicon, Xcode 16+, about 1 GB of disk for the engine and the
+build products. `CRA_ARCH=x86_64 scripts/build.sh` cross-compiles the
 Intel app into `build/x86_64/Cra.app` (another ~1 GB); every release ships both.
 
-`scripts/fetch-cef.sh` pins the CEF version and downloads it into `vendor/cef` (not
-committed). It fetches Cra's own CEF build, made by `scripts/build-cef.sh` with H.264/AAC
-and the patches in `scripts/cef-patches` and published as a `cef-*` release by
-`scripts/publish-cef.sh`; `CEF_URL` points it at Spotify's stock build instead. A daily workflow (`.github/workflows/cef-updates.yml`) opens an
-issue when a newer stable CEF is out; `scripts/update-cef.sh` moves the pin.
-If the release download fails, `scripts/download-cef.py` retrieves the same Cra asset
-through GitHub's public API and verifies its published SHA-256 before unpacking.
-Custom `CEF_URL` downloads never fall back to a different Cra build.
+Cra runs on Chrome's own framework with a thin layer of Cra's code built into it: the engine
+([chromium-engine.md](chromium-engine.md)). `scripts/fetch-engine.sh` pins its version and downloads it into
+`vendor/engine` (not committed), from an `engine-*` release that `scripts/publish-engine.sh` publishes.
+`scripts/build-chromium.sh` builds it from a Chrome stable tag (~45 GB, 2–4 h a CPU) with the layer, Cra's
+patches and ungoogled-chromium's in `engine/chromium` (`apply.sh` puts them in the tree);
+`CRA_ENGINE_OUT=<out dir> scripts/build.sh` builds the app on such a local build. `scripts/check-engine-update.sh`
+says when Chrome has a newer stable; a release needs the newest.
+
+`CRA_ENGINE=cef scripts/build.sh` still builds on CEF: `scripts/fetch-cef.sh` downloads Cra's CEF build
+(`scripts/build-cef.sh`, `scripts/cef-patches`, published by `scripts/publish-cef.sh`) into `vendor/cef`, and
+`Sources/CraCEF/CraCEF.mm` is the bridge.
 
 ## Layout
 
 - `Sources/Cra` — the app: `App` (delegate, key bindings), `Services` (sidebar store,
   persistence, import, updates, extensions, live folders), `UI` (sidebar, command bar, split
   view, windows, settings, onboarding)
-- `Sources/CraCEF` — Objective-C++ bridge between Swift and CEF
-- `Sources/CraHelper` — Chromium subprocess executable
+- `Sources/CraCEF` — the bridge's header (`include/CraCEF.h`), which Swift sees; on the engine it is
+  implemented inside Chrome's framework (`engine/chromium/cra`), on CEF by `CraCEF.mm`
+- `engine/chromium` — the engine's layer, Chrome hooks, patches and branding
+- `Sources/CraHelper` — CEF's Chromium subprocess (the engine has Chrome's own helpers)
 - `Sources/Cra/Services/WebKit` — the WebKit page that DRM services open in
   ([protected-media.md](protected-media.md))
+- `iOS/` — the iPhone app (UIKit on WebKit, matching Arc Search), its widgets, share
+  extension and UI tests; [ios.md](ios.md) has its layout and `scripts/ios.sh`
 - `Packages/CraCore` — models and decisions with no AppKit or Chromium (the sidebar model,
   settings and the other data-folder files, Air Traffic Control, live folder data, key chords,
   space themes, Arc theme import, the favorites grid), visible in every `Sources/Cra` file.
@@ -48,7 +55,7 @@ Custom `CEF_URL` downloads never fall back to a different Cra build.
 - `scripts/` — build, release, CEF and test tooling; `scripts/clips` records release clips
 - `docs/arc-reverse-engineering.md` — what was learned from Arc and how
 - `docs/release.md` — signing, notarization and the release workflow
-- `vendor/cef` — CEF binary distribution (fetched, not committed)
+- `vendor/engine` — the engine (fetched, not committed); `vendor/cef` for CEF builds
 
 Data lives in `~/Library/Application Support/Cra`: the sidebar and archive as JSON,
 `keybindings.json`, each tab's back and forward list in `PageHistory/`, cached favicons, the logs
@@ -65,7 +72,12 @@ from different writes (hashes that don't match the manifest, #378) are waited fo
 minutes (`SyncMixWait`), then the Mac writes a whole bundle again; a file the manifest names that
 is gone with no placeholder is put right the same way, after one minute on the Mac that wrote the
 manifest and ten on another. A Mac that hasn't synced in the folder yet never writes over another
-Mac's bundle: it waits for that Mac, then asks. A newer Cra's bundle is never written over. `cra://debug?sync=<label>` logs what the last look found. `sync.json` in the data
+Mac's bundle: it waits for that Mac, then asks. A newer Cra's bundle is never written over. Each
+bundle's manifest names the bundles its Mac had written or applied, newest first (`parentIDs`); a
+Mac that has one of them (`sync-history.json`, the last eight written or applied, `SyncHistory`)
+merges the bundle with what changed here since the newest it has (`SidebarMerge` in CraCore: a tab closed on either Mac stays
+closed, a tab opened on either is on both, an item both changed takes the other Mac's) and writes
+the merge back. A bundle from an older Cra, or from one too far back, is applied whole. `cra://debug?sync=<label>` logs what the last look found. `sync.json` in the data
 folder holds the location and the last bundle written or applied. To try it on one Mac, run a second instance on another
 `CRA_DATA_DIR` with `CRA_SYNC_DEVICE=<name>` (a Mac is known in the folder by a hash of its
 hardware UUID, which two instances share);
@@ -117,8 +129,25 @@ to Markdown or `docs/` alone runs nothing.
   a stub to `AppServices.swift`.
 - `scripts/test-store.sh`: the real `SidebarStore`, `AppComposition` and importers on a
   `ManualScheduler`, against the made-up Arc and Chromium profiles in `Tests/Fixtures`.
+- `scripts/test-tidy-downloads.sh`: `TidyDownloadsService` and `TidyDownloadFiles` on real files
+  with a fake model: renames, Revert, and a newer download at the same path while a rename or
+  undo is waiting. No Chromium or windows.
+- `scripts/test-tidy-tabs.sh`: Tidy Tabs' service on the real `SidebarStore` with a scripted
+  model: the broom's minimum run, cancellation when the setting goes off or the space goes away,
+  a failed run hiding Tidy like Arc's, undo. `scripts/test-tidy-tabs-model.sh` checks the
+  on-device adapter's context fitting; `--real` also asks the Mac's own model (needs Apple
+  Intelligence) and prints its groups.
+- `scripts/test-tidy-titles.sh`: Tidy Tab Titles' service on the real `SidebarStore` with a
+  scripted model and a manual clock: the pin's own window measures the name, a manual rename or a
+  new home wins over a late answer, and turning the setting or the model off cancels.
+  `scripts/test-tidy-title-layout.sh` checks the row's title width and font and the rename sweep's
+  cleanup. `scripts/test-tidy-titles-model.sh` checks Arc's answer schema; `--real` also asks the
+  Mac's own model (needs Apple Intelligence) for 18 sample titles and prints the names a 230 pt row
+  would pick.
 - `scripts/test-policies.sh`: the decisions pulled out of the window controllers
   (`ExtensionLaunch`, `DevToolsToggle`, `FeatureFlags`).
+- `scripts/test-webkit-stores.sh`: `WebKitStores` in a process where nothing has started WebKit
+  yet, as at launch: a deleted profile's WebKit data goes without crashing.
 - `scripts/test-folder-glyph.sh`: the standalone folder component's real AppKit layers and image
   pixels: emblems follow the front panel's perspective, keep their colors and proportions, and
   update at 1x/Retina. No CEF or visible window; coverage uses the same harness as `scripts/test.sh`.
@@ -128,11 +157,35 @@ to Markdown or `docs/` alone runs nothing.
 - `scripts/test-link-summary-share.sh`: 5-Second Previews' Copy as Image (`LinkSummaryShareImage`)
   against Arc's own copy of a card: size at 3x, the picture's inset, the dashed line's pattern and place,
   the footer colour.
+- `scripts/test-mobile-popup.sh`: the iPhone app's popups (`WebPage`'s `createWebViewWith` callback and
+  `TabStore` against stand-ins, no WebKit or simulator): a popup keeps WebKit's request (POST body included)
+  and takes its source's privacy, closing it returns to its opener, private openers stay only while their
+  popup is in front, and a closed opener's page is let go.
 - `scripts/test-link-summary-panel.sh`: 5-Second Previews' card window (`LinkSummaryPanel`) off screen with
   a stub service: the loading card, the answer growing in under the link, the small card above its link, closing.
+- Ask on Page (⌘F's find-or-ask card), four harnesses:
+  `scripts/test-ask-on-page-service.sh` runs `AskOnPageService`, the card's controller and the find panel's
+  Use Selection path on a `ManualScheduler` with a scripted model (streaming at ten updates a second, follow-ups
+  as turns, an echoed request asked again, overflow and failures); `scripts/test-ask-on-page-lifecycle.sh` the
+  same service on the real `SidebarStore` (Max switches, profiles, availability); `scripts/test-ask-on-page-content.sh`
+  the page-text and quote scripts in a real WKWebView on `Tests/Fixtures/AskOnPage`; `scripts/test-ask-on-page-quotes.sh`
+  the quote script on a scripted DOM in Node, and the CEF bridge's isolated-world evaluation.
+- `scripts/test-link-summary-service.sh`: 5-Second Previews' fetch and model lifecycle (`LinkSummaryFetch`,
+  `LinkSummaryService`) on a manual clock: every redirect hop checked before it's requested (no hosts on the Mac
+  or the local network), the byte and time limits, cancellation dropping late answers, the context-overflow retry,
+  caches kept apart by profile, search and language.
+- `scripts/test-link-summary-hooks.sh`: turning 5-Second Previews off, or Apple Intelligence becoming unavailable,
+  stops the card and the work behind it.
+- `scripts/test-link-summary-image.sh`: the card's picture over a local server: images only, at most 4 MB, every
+  redirect checked, nothing kept and no cookies sent.
 - `scripts/test-emoji-label.sh`: a space's emoji label in the dock and the space header, drawn
   clipped to its frame and with the cell's text cut at the baseline, as macOS 27 draws it: `EmojiLabel`
   shows the emoji's whole picture, in the same place (#399).
+- `scripts/test-pip-corners.sh`: the Picture in Picture hover controls in a transparent window like the
+  overlay, read back through the window server: shown, the dark layer stays inside the window's 6 pt
+  corners at every size class (#463).
+- `scripts/test-theme-noise.sh`: the theme's grain over the main window (`ThemeNoiseView`) is a pattern
+  Core Animation tiles, with no window-sized backing store, and shows the grain the drawn view did at 1x and 2x.
 - `scripts/test-music-notes.sh`: the production note sprites over fixed white and black backgrounds
   at 1x and 2x, checking light-theme contrast and the dark-theme tint without CEF or a visible window.
 - `scripts/test-live-folder-plugins.sh`: the real `CraPluginHost` (sandboxed JavaScriptCore) and

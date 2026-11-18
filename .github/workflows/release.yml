@@ -11,6 +11,9 @@ name: Release
 #   APPLE_ID                     Apple ID used for notarization
 #   APPLE_TEAM_ID                10-character team id
 #   APPLE_APP_PASSWORD           app-specific password for that Apple ID
+#   APPLE_API_KEY_P8             optional, preferred: an App Store Connect API key (.p8 text) with the
+#   APPLE_API_KEY_ID             Developer role, its key id and the issuer id. notarize.sh uses it in
+#   APPLE_API_ISSUER             place of the Apple ID, which breaks with a revoked app password.
 #   SPARKLE_PRIVATE_KEY          EdDSA key that signs updates (generate_keys --account cra -x),
 #                                required: installed copies only accept updates it signed
 #   MACOS_PROVISIONING_PROFILE   optional, base64 of the Developer ID provisioning profile
@@ -39,6 +42,9 @@ jobs:
     # Intel is cross-compiled on the same Apple silicon runner, with the same SDK.
     runs-on: macos-26
     strategy:
+      # One CPU stopping (Apple's notary queue running past the wait) doesn't cancel the other's
+      # notarization: each job's rerun resumes on its own.
+      fail-fast: false
       matrix:
         arch: [arm64, x86_64]
     env:
@@ -54,16 +60,12 @@ jobs:
       - name: Normalise version
         run: echo "CRA_VERSION=${CRA_VERSION#v}" >> "$GITHUB_ENV"
 
-      - name: Read pinned CEF version
-        id: cef
-        run: echo "version=$(sed -n 's/^CEF_VERSION="${CEF_VERSION:-\(.*\)}"$/\1/p' scripts/fetch-cef.sh)" >> "$GITHUB_OUTPUT"
-
-      # build.sh keeps the runner's own CPU in vendor/cef and the other one in vendor/cef-<arch>.
-      - name: Cache CEF
+      # build.sh keeps the runner's own CPU in vendor/engine and the other one in vendor/engine-<arch>.
+      - name: Cache the engine
         uses: actions/cache@v6
         with:
-          path: ${{ matrix.arch == 'arm64' && 'vendor/cef' || format('vendor/cef-{0}', matrix.arch) }}
-          key: cef-${{ matrix.arch }}-${{ steps.cef.outputs.version }}-${{ hashFiles('scripts/fetch-cef.sh') }}
+          path: ${{ matrix.arch == 'arm64' && 'vendor/engine' || format('vendor/engine-{0}', matrix.arch) }}
+          key: engine-${{ matrix.arch }}-${{ hashFiles('scripts/fetch-engine.sh') }}
 
       - name: Import signing certificate
         id: cert
@@ -89,8 +91,38 @@ jobs:
           rm "$RUNNER_TEMP/cert.p12"
           echo "signed=true" >> "$GITHUB_OUTPUT"
 
+      # Notarization by App Store Connect API key (a Developer-role team key) when its secrets are set:
+      # it doesn't break when an app-specific password is revoked or the Apple ID is locked, which
+      # stopped 0.1.47's rerun with HTTP 401. Without them notarize.sh uses the Apple ID below.
+      - name: Notary API key
+        env:
+          API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
+          API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+        run: |
+          if [ -n "$API_KEY_P8" ] && [ -n "$API_KEY_ID" ] && [ -n "$API_ISSUER" ]; then
+            printf '%s\n' "$API_KEY_P8" > "$RUNNER_TEMP/AuthKey.p8"
+            chmod 600 "$RUNNER_TEMP/AuthKey.p8"
+            { echo "NOTARY_API_KEY_PATH=$RUNNER_TEMP/AuthKey.p8"; echo "NOTARY_API_KEY_ID=$API_KEY_ID"; echo "NOTARY_API_ISSUER=$API_ISSUER"; } >> "$GITHUB_ENV"
+            echo "Notarizing with API key $API_KEY_ID"
+          else
+            echo "No API key secrets: notarizing with the Apple ID"
+          fi
+
+      # A rerun of a job that stopped while Apple was still checking (its wait ran out, or the job was
+      # cancelled) gets the signed app, DMG and submission id the failed attempt kept, so release.sh
+      # waits for that submission instead of building and submitting again.
+      - name: Pick up a pending notarization
+        id: pending
+        continue-on-error: true
+        uses: actions/download-artifact@v8
+        with:
+          name: pending-${{ env.CRA_VERSION }}-${{ matrix.arch }}
+          path: build/pending
+
       - name: Build, sign, notarize, package
         env:
+          CRA_RESUME: ${{ steps.pending.outcome == 'success' && 'build/pending' || '' }}
           CRA_SIGN_IDENTITY: ${{ steps.cert.outputs.signed == 'true' && secrets.MACOS_SIGN_IDENTITY || '' }}
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
@@ -99,15 +131,28 @@ jobs:
           CRA_GOOGLE_API_KEY: ${{ secrets.CRA_GOOGLE_API_KEY }}
           # Fork: the public half of SPARKLE_PRIVATE_KEY (repository variable).
           SPARKLE_PUBLIC_KEY: ${{ vars.SPARKLE_PUBLIC_KEY }}
-          # The repository variable CRA_ALLOW_OLD_CEF=1 ships the pinned CEF past release.sh's check
-          # (docs/release.md, "A release ships the newest CEF"). Delete the variable after the release.
-          CRA_ALLOW_OLD_CEF: ${{ vars.CRA_ALLOW_OLD_CEF }}
+          # The repository variable CRA_ALLOW_OLD_ENGINE=1 ships the pinned engine past release.sh's check
+          # (docs/release.md). Delete the variable after the release.
+          CRA_ALLOW_OLD_ENGINE: ${{ vars.CRA_ALLOW_OLD_ENGINE }}
         run: scripts/release.sh
 
       # Fork: fail the release if any Intel binary needs a macOS newer than 13.
       - name: Verify the Intel app runs on Ventura
         if: matrix.arch == 'x86_64'
         run: python3 scripts/verify-ventura-bundle.py build/x86_64/Cra.app
+
+      - name: Keep a pending notarization
+        if: ${{ failure() || cancelled() }}
+        run: scripts/keep-pending.sh build/keep
+
+      - name: Upload the pending notarization
+        if: ${{ failure() || cancelled() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: pending-${{ env.CRA_VERSION }}-${{ matrix.arch }}
+          path: build/keep
+          if-no-files-found: ignore
+          overwrite: true
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v7
@@ -138,7 +183,7 @@ jobs:
       - name: Checksums for both CPUs
         run: |
           cd dist
-          for f in Cra.dmg Cra.zip appcast.xml Cra-Intel.dmg Cra-Intel.zip appcast-intel.xml; do
+          for f in Cra.dmg Cra.zip appcast.xml appcast-stable.xml Cra-Intel.dmg Cra-Intel.zip appcast-intel.xml appcast-stable-intel.xml; do
             [ -f "$f" ] || { echo "Missing $f" >&2; exit 1; }
           done
           sha256sum Cra*.zip Cra*.dmg > SHA256SUMS.txt

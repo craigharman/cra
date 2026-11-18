@@ -76,3 +76,28 @@ extension View {
         }
     }
 }
+
+extension View {
+    /// `.presentationBackground(_:)` on macOS 13.3 and later; before that the popover keeps the
+    /// system's own background.
+    @ViewBuilder func presentationBackgroundIfAvailable(_ style: some ShapeStyle) -> some View {
+        if #available(macOS 13.3, *) {
+            presentationBackground(style)
+        } else {
+            self
+        }
+    }
+}
+
+extension NSRunningApplication {
+    /// Brings the app forward. macOS 14 and later hand activation over cooperatively
+    /// (`yieldActivation(to:)` first, then `activate(from:options:)`); Ventura activates it outright.
+    func bringForward(yielding: Bool = false) {
+        if #available(macOS 14.0, *) {
+            if yielding { NSApp.yieldActivation(to: self) }
+            activate(from: .current, options: [])
+        } else {
+            activate(options: [])
+        }
+    }
+}

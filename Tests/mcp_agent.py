@@ -440,10 +440,25 @@ try:
     value(client.tool("tab_close", tabId=user_tab))
     check("a today tab closes", user_tab not in [t["id"] for t in value(client.tool("tabs_list"))])
 
-    # The pill: Cra's toast names the agent while it acts; Stop ends every connection and MCP.
-    check("acting shows the pill with the agent's name", "mcp pill: cra-agent is using Cra" in (folder / "browser.log").read_text(errors="replace"))
+    # The pill: Cra's toast names the agent and what it does while it acts; Take Over ends that
+    # agent's session only. MCP stays on, so other agents keep working and the stopped one can
+    # connect again. The face marks the tabs it worked in; its cursor shows only over a tab the
+    # user is looking at, and this Cra is behind other apps.
+    bystander = Client()  # only reads, so the pill stays the acting agent's
+    value(bystander.tool("tabs_list"))
+    log = (folder / "browser.log").read_text(errors="replace")
+    check("acting shows the pill with the agent's name and its click", "mcp pill: cra-agent is clicking" in log)
+    check("the pill says when the agent types", "mcp pill: cra-agent is typing" in log)
+    check("the rows of the tabs it works in show its face", "mcp faces: 1 tab" in log)
+    check("no cursor over tabs nobody is looking at", "mcp cursor:" not in log)
     command("cra://debug?mcpStop=1")
-    check("Stop disconnects agents and turns MCP off", eventually(lambda: client.proc.poll() is not None or not listening()) and eventually(lambda: not listening()))
+    check("Take Over ends the acting agent's session", eventually(lambda: client.proc.poll() is not None))
+    check("Take Over takes its faces off the sidebar", eventually(lambda: "mcp faces: 0 tabs" in (folder / "browser.log").read_text(errors="replace")))
+    check("Take Over leaves MCP on", listening())
+    check("another agent keeps working after Take Over", isinstance(value(bystander.tool("tabs_list")), list))
+    again = Client()
+    check("the stopped agent can connect again", isinstance(value(again.tool("tabs_list")), list))
+    again.close(); bystander.close()
     print("ALL " + str(len(checks)) + " CHECKS PASSED", flush=True)
 finally:
     if process.poll() is None:

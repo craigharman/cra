@@ -96,8 +96,10 @@ Rules that keep that merge clean:
   and its own Sparkle key (`SPARKLE_PUBLIC_KEY` variable, `SPARKLE_PRIVATE_KEY` secret), so a
   Ventura copy never updates itself to an upstream build that needs macOS 14.
 
-The repository variable `CRA_ALLOW_OLD_CEF=1` lets `release.sh` ship the CEF upstream's
-release pinned even when a newer stable CEF exists; without it most releases stop there.
+The repository variable `CRA_ALLOW_OLD_ENGINE=1` lets `release.sh` ship the engine (upstream's
+Chromium framework, `scripts/fetch-engine.sh`) that upstream's release pinned, even when Chrome
+stable has moved on; without it most releases stop there. The engine's binaries target macOS 13,
+and `scripts/verify-ventura-bundle.py` checks them with the rest of the app.
 
 Upstream's scheduled workflows (Nightly, CEF updates, Ideas housekeeping) are disabled in the
 fork's Actions settings.

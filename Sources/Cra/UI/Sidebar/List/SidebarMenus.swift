@@ -14,6 +14,12 @@ enum SidebarMenus {
         MenuItems.add(menu, title, enabled: enabled, on: on, run)
     }
 
+    @discardableResult
+    private static func add(_ menu: NSMenu, _ title: SpaceMenuTitle.Value, enabled: Bool = true, on: Bool? = nil,
+                            _ run: @escaping () -> Void) -> NSMenuItem {
+        MenuItems.add(menu, title, enabled: enabled, on: on, run)
+    }
+
     /// A row for a KeyBindings command, with its shortcut (MenuItems.add(_:action:)).
     @discardableResult
     private static func add(_ menu: NSMenu, action id: String, _ title: String? = nil, enabled: Bool = true, on: Bool? = nil,
@@ -80,10 +86,14 @@ enum SidebarMenus {
         if m.pinned {
             add(menu, action: "pinTab", "Unpin Tab") { store.unpinTab(id) }
         } else {
-            add(menu, action: "pinTab", "Pin Tab") { store.pinTab(id) }
+            add(menu, action: "pinTab", "Pin Tab") {
+                store.withPinningWindow(ui.windowID) { store.pinTab(id) }
+            }
         }
         if store.isFavorite(id) {
-            add(menu, action: "favoriteTab", "Remove from Favorites") { store.removeFromFavorites(id) }
+            add(menu, action: "favoriteTab", "Remove from Favorites") {
+                store.withPinningWindow(ui.windowID) { store.removeFromFavorites(id) }
+            }
         } else {
             add(menu, action: "favoriteTab", "Add to Favorites") { store.addToFavorites(id) }
         }
@@ -132,7 +142,9 @@ enum SidebarMenus {
         menu.addItem(.separator())
         let spaces = submenu(menu, "Move to Space")
         for s in store.orderedSpaces {
-            add(spaces, s.labeled, enabled: !store.isInSpace(id, s.id)) { store.moveTab(id, toSpace: s.id, window: ui.windowID) }
+            add(spaces, SpaceMenuTitle.plain(s.labeled), enabled: !store.isInSpace(id, s.id)) {
+                store.moveTab(id, toSpace: s.id, window: ui.windowID)
+            }
         }
         folderItems(menu, [id], list: list)
         menu.addItem(.separator())
@@ -205,7 +217,7 @@ enum SidebarMenus {
                     let sub = submenu(menu, title)
                     let own = store.spaceID(ofItem: ids[0])
                     for s in store.orderedSpaces {
-                        add(sub, s.labeled, on: s.id == own) {
+                        add(sub, SpaceMenuTitle.plain(s.labeled), on: s.id == own) {
                             guard s.id != own else { return }
                             for id in ids { store.moveTab(id, toSpace: s.id, window: ui.windowID) }
                             ui.clearPicks()
@@ -214,7 +226,11 @@ enum SidebarMenus {
                     sub.addItem(.separator())
                     add(sub, "New Space…") { actions.newSpaceWith(ids) }
                 case "newFolder":
-                    add(menu, title) { ui.renamingID = store.createFolder(with: ids).id }
+                    add(menu, title) {
+                        store.withPinningWindow(ui.windowID) {
+                            ui.renamingID = store.createFolder(with: ids).id
+                        }
+                    }
                 case "archive":
                     // Arc archives every pick, pinned ones too, without asking; a Today tab goes as ⌘W does.
                     add(menu, title) {
@@ -249,12 +265,14 @@ enum SidebarMenus {
             let sub = submenu(menu, ids.count > 1 ? "Move \(ids.count) Tabs to Folder" : "Move to Folder")
             for f in folders {
                 add(sub, f.title ?? "Folder", enabled: !ids.allSatisfy { store.item($0)?.parentID == f.id }) {
-                    store.moveItems(ids, to: f.id, index: nil)
+                    store.withPinningWindow(ui.windowID) { store.moveItems(ids, to: f.id, index: nil) }
                 }
             }
         }
         add(menu, ids.count > 1 ? "New Folder with \(ids.count) Tabs" : "New Folder with Tab") {
-            ui.renamingID = store.createFolder(with: ids).id
+            store.withPinningWindow(ui.windowID) {
+                ui.renamingID = store.createFolder(with: ids).id
+            }
         }
     }
 
@@ -348,7 +366,7 @@ enum SidebarMenus {
         let spaces = submenu(menu, "Move to")
         for space in store.orderedSpaces {
             let current = store.isInSpace(id, space.id)
-            add(spaces, space.labeled, on: current) {
+            add(spaces, SpaceMenuTitle.plain(space.labeled), on: current) {
                 if !current { store.moveTab(id, toSpace: space.id, window: ui.windowID) }
             }
         }
@@ -471,7 +489,9 @@ enum SidebarMenus {
         let spaces = submenu(menu, "Move to")
         for s in store.orderedSpaces {
             let current = store.isInSpace(id, s.id)
-            add(spaces, s.labeled, on: current) { if !current { store.moveTab(id, toSpace: s.id, window: ui.windowID) } }
+            add(spaces, SpaceMenuTitle.plain(s.labeled), on: current) {
+                if !current { store.moveTab(id, toSpace: s.id, window: ui.windowID) }
+            }
         }
         menu.addItem(.separator())
         add(menu, "Archive Item") { for c in children { store.archiveTab(c, reason: .manual) } }

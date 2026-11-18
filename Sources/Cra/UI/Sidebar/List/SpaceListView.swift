@@ -91,6 +91,7 @@ final class SpaceListView: NSView, NSDraggingSource {
     /// The active row at the last build: a change scrolls the new one into view.
     private var lastActive: RowKey?
     let autoscroller = DragAutoscroller()
+    let edgePager = SidebarEdgePager()
     private static let all = NSHashTable<SpaceListView>.weakObjects()
 
     /// A swipe slides the lists under a resting pointer: their hover ends until it settles.
@@ -100,6 +101,18 @@ final class SpaceListView: NSView, NSDraggingSource {
 
     static func refreshHover(for ui: SidebarUIState) {
         for l in all.allObjects where l.ui === ui { l.refreshHover() }
+    }
+
+    /// Measure only in the window that initiated the pin, using its layout at completion time.
+    static func tidyTitleLayout(for id: UUID, window windowID: UUID) -> TidyTitleLayout? {
+        for list in all.allObjects where TidyTitles.usesSidebarLayout(windowID: list.ui.windowID,
+            originWindowID: windowID, hasWindow: list.window != nil, showsNewTab: list.showsNewTab) {
+            list.layoutSubtreeIfNeeded()
+            if let row = list.views[.item(id)] as? TabRowView, row.model?.id == id {
+                return row.tidyTitleLayout
+            }
+        }
+        return nil
     }
 
     /// Arc's Spaces page lists a space's tabs without the New Tab row.
@@ -155,6 +168,8 @@ final class SpaceListView: NSView, NSDraggingSource {
         // A link from a page or another app opens as a tab where it is let go (#419).
         document.registerForDraggedTypes([.craSidebarItem, .URL, .string])
         autoscroller.anchor = document
+        edgePager.anchor = self
+        edgePager.onPage = { [weak self] in self?.pageSpace($0) }
         Self.all.add(self)
         sync()
     }
@@ -225,6 +240,7 @@ final class SpaceListView: NSView, NSDraggingSource {
         let renaming = ui.renamingID
         let focusID = ui.keyboardFocusID
         let capturing = ui.capturingTabIDs
+        let agents = ui.agentTabIDs
         let audible = ui.audibleTabIDs
         let refreshing = LiveFolderManager.shared.refreshing
         let tidyEffects = TidyTitlesService.shared.effects
@@ -313,7 +329,7 @@ final class SpaceListView: NSView, NSDraggingSource {
                     icon: img, flipIcon: flip, liveIcon: liveIcon,
                     editing: renaming == item.id, selected: selected,
                     highlighted: picks.isEmpty ? selected && !placeholder : picks.contains(item.id),
-                    capturing: capturing.contains(item.id), audible: audible.contains(item.id), muted: tab.muted, unread: item.isUnread,
+                    capturing: capturing.contains(item.id), agent: agents.contains(item.id), audible: audible.contains(item.id), muted: tab.muted, unread: item.isUnread,
                     navigatedAway: navigatedAway,
                     focusRing: focusID == item.id, developerMode: developerMode, peeked: peeked,
                     homeIcon: homeImg, homeFlipIcon: homeFlip,
@@ -955,6 +971,29 @@ final class SpaceListView: NSView, NSDraggingSource {
         let item = NSDraggingItem(pasteboardWriter: pb)
         item.setDraggingFrame(row.bounds, contents: dragImage(of: row))
         row.beginDraggingSession(with: [item], event: event, source: self)
+        edgePager.start()
+    }
+
+    /// A row held at the sidebar's edge pages to the space on that side (#499); the drag goes on
+    /// in that space's list.
+    func pageSpace(_ direction: SidebarEdgeDrag.Direction) {
+        guard ui.spaceSwipe == 0, ui.libraryPage == nil else { return }
+        let ids = store.pagedSpaces(window: ui.windowID).map(\.id)
+        guard let i = ids.firstIndex(of: store.focusedSpaceID(window: ui.windowID)),
+              let j = SidebarEdgeDrag.target(from: i, count: ids.count, direction) else { return }
+        store.focusSpace(ids[j], window: ui.windowID)
+    }
+
+    /// `cra://debug?edgeDrag`: a drag held `hold` seconds just past the sidebar's left or right
+    /// edge, without the pointer (#499); `done` once it lets go.
+    func testEdgeDrag(_ direction: SidebarEdgeDrag.Direction, hold: TimeInterval, done: @escaping () -> Void) {
+        guard let f = edgePager.pagerFrame else { CraLog.note("edgeDrag: no pager"); done(); return }
+        edgePager.testPoint = CGPoint(x: direction == .next ? f.maxX + 10 : f.minX - 10, y: f.midY)
+        edgePager.start()
+        DispatchQueue.main.asyncAfter(deadline: .now() + hold) { [weak self] in
+            self?.edgePager.stop()
+            done()
+        }
     }
 
     /// The row as it looks at rest, on a rounded card.
@@ -994,6 +1033,7 @@ final class SpaceListView: NSView, NSDraggingSource {
     /// A row's drag is over (`cra://debug?dragEnd` ends one the same way).
     func dragEnded(_ dragged: UUID?, at screenPoint: NSPoint, operation: NSDragOperation) {
         autoscroller.stop()
+        edgePager.stop()
         // Let go outside every Cra window where nothing took it: Arc opens the tab in a Blank Window there.
         if let id = dragged, TabTearOff.tearsOff(isTab: store.item(id)?.isTab == true, incognito: store.isIncognito(item: id),
                                                        dropAccepted: !operation.isEmpty, overAppWindow: Self.isOverAppWindow(screenPoint)) {
@@ -1126,26 +1166,6 @@ final class SpaceListView: NSView, NSDraggingSource {
         return store.createTab(url: link.url, title: link.title, in: spaceID, select: false, parent: place.parent, index: place.index, window: ui.windowID)
     }
 
-    private func applyDrop(_ drop: SidebarListDrop) {
-        let id = drop.draggedID
-        // A picked tab carries the other picks along (a split still takes one pane).
-        let group = ui.group(for: id, in: store)
-        switch drop.target {
-        case .insert(let parent, let index)?:
-            store.moveItems(group, to: parent, index: index)
-        case .split(let tab, let leading)?:
-            // Arc opens the tab a drag picks up, so the new split ends up open on its pane (#180).
-            if store.combineIntoSplit(id, onto: tab, leading: leading) != nil { store.selectTab(id, window: ui.windowID) }
-        case .into(let target)?:
-            if store.item(target)?.isFolder == true {
-                store.dropIntoFolder(group, folder: target)
-            } else {
-                store.moveItem(id, to: target, index: nil)
-            }
-        case nil:
-            break
-        }
-    }
 
     private func isInside(_ id: UUID, _ ancestor: UUID) -> Bool {
         var cur = store.item(id)?.parentID
@@ -1189,7 +1209,8 @@ final class SpaceListView: NSView, NSDraggingSource {
                 // target's place: on a pinned tab it is a pinned split (#180).
                 target = .split(with: rid, leading: p.x < r.frame.midX)
             } else if middle && isTab && item.isSplit {
-                target = .into(rid)
+                // A split of Arc's four panes takes no fifth (#498).
+                target = item.children.count < SplitDropProposal.maximumPanes ? .into(rid) : nil
             } else if middle && !combines {
                 // Arc 1.173.1 takes nothing on a tab's middle (measured: no line, no tab, the tab kept its page).
                 target = nil
@@ -1386,6 +1407,15 @@ final class SpaceListDocument: NSView {
 
     // Right-click on empty list space; rows have their own menus.
     override func menu(for event: NSEvent) -> NSMenu? { list?.listMenu() }
+
+    /// A double click on empty list space opens the New Tab bar, as Arc's does
+    /// (onDidDoubleClickSidebarBackground, command bar source sidebarEmptySpaceDoubleClick, #446).
+    /// Rows take their own clicks; a single press goes on to the sidebar, which moves the window.
+    override func mouseDown(with event: NSEvent) {
+        guard event.clickCount == 2, let list else { return super.mouseDown(with: event) }
+        CraLog.note("sidebar empty space double-click: new tab")
+        list.actions.openCommandBar(.newTab)
+    }
 
     override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation { list?.dragUpdated(sender, entered: true) ?? [] }
     override func draggingUpdated(_ sender: NSDraggingInfo) -> NSDragOperation { list?.dragUpdated(sender, entered: false) ?? [] }

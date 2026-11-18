@@ -9,6 +9,9 @@ struct PictureInPictureActions {
     /// Go to this many seconds from the video's start (the scrubber).
     var seek: (Double) -> Void = { _ in }
     var close: () -> Void
+    /// Arc's Minimize: out of Picture in Picture with the video playing on in its tab, which
+    /// stays where it is; the sidebar player then has it (#434).
+    var minimize: () -> Void = {}
 }
 
 /// Arc's Picture in Picture window, reproduced over Chromium's.
@@ -41,7 +44,7 @@ final class PictureInPictureChrome {
         didSet { for o in overlays.values { o.controls.address = address } }
     }
 
-    static let cornerRadius: CGFloat = 6
+    static let cornerRadius = PictureInPictureLayout.cornerRadius
     static let edgeMargin = PictureInPictureLayout.edgeMargin
     private static let frameKey = "CraPictureInPictureFrame"
     /// The display the frame was left on and that display's frame then (#316).
@@ -212,6 +215,16 @@ final class PictureInPictureChrome {
     private static func share(of w: NSWindow) -> String {
         guard let visible = (w.screen ?? NSScreen.main)?.visibleFrame, visible.width > 0 else { return "-" }
         return String(format: "%.2f", w.frame.width / visible.width)
+    }
+
+    /// `cra://debug?pipButton=back|minimize|close`: that hover button clicked.
+    func debugPress(_ name: String) {
+        for o in overlays.values { o.controls.debugPress(name) }
+    }
+
+    /// `cra://debug?pipShow=1`: the hover controls shown as the pointer shows them, and kept up.
+    func debugShow() {
+        for o in overlays.values { o.controls.debugShow() }
     }
 
     /// `cra://debug?pipSeek=<0…1>`: the scrubber pressed that far along and let go.
@@ -648,8 +661,10 @@ final class PictureInPictureOverlayView: NSView {
     /// screen refresh, never straight from a scroll event.
     private var link: (any FrameTicker)?
     private var lastTick: CFTimeInterval = 0
-    /// Where the pointer sits in the window while it rides along with the fingers.
-    private var carried: CGVector?
+    /// The pointer is hidden, riding along with the window under the fingers.
+    private var carrying = false
+    /// Watch for the fingers' lift reaching another window (`watchForLift`).
+    private var liftMonitors: [Any] = []
 
     /// Two fingers on the trackpad (or a Magic Mouse) move the window with them, and when they
     /// lift it flies on into the corner of the screen it was heading for, as Arc's does. A wheel
@@ -661,32 +676,61 @@ final class PictureInPictureOverlayView: NSView {
         let t = event.timestamp
         switch event.phase {
         case .mayBegin, .began:
-            land()
-            swipe = PictureInPictureThrow(frame: target.frame, at: t)
-            pressedOn = Self.display(holding: target.frame)
-            pressedSize = target.frame.size
-            startLink()
+            beginSwipe(target, event)
         case .changed:
-            if swipe == nil {
-                land()
-                swipe = PictureInPictureThrow(frame: target.frame, at: t)
-                pressedOn = Self.display(holding: target.frame)
-                pressedSize = target.frame.size
-                startLink()
-            }
+            if swipe == nil { beginSwipe(target, event) }
             // The window goes where the fingers go: with natural scrolling the deltas already
             // follow them, without it they're the other way round.
             let toFingers: CGFloat = event.isDirectionInvertedFromDevice ? 1 : -1
             _ = swipe?.move(dx: toFingers * event.scrollingDeltaX, dy: -toFingers * event.scrollingDeltaY, at: t)
         case .ended, .cancelled:
+            endSwipe(target, event)
+        default:
+            break
+        }
+    }
+
+    /// The fingers touched down on the window. The window will go only as far as the pointer,
+    /// riding along at its spot in it, can follow: inside the displays' visible frames, off the
+    /// menu bar and the Dock (`PictureInPictureThrow`, #516).
+    private func beginSwipe(_ target: NSWindow, _ event: NSEvent) {
+        land()
+        releasePointer()
+        let f = target.frame, at = Self.screenLocation(of: event)
+        swipe = PictureInPictureThrow(frame: f, at: event.timestamp, pointer: CGVector(dx: at.x - f.minX, dy: at.y - f.minY),
+                                      displays: NSScreen.screens.map(\.visibleFrame))
+        pressedOn = Self.display(holding: f)
+        pressedSize = f.size
+        watchForLift()
+        startLink()
+    }
+
+    private func endSwipe(_ target: NSWindow, _ event: NSEvent) {
             guard let s = swipe else { return }
             swipe = nil
             releasePointer()
             guard s.hasMoved else { pressedOn = nil; return stopLink() }
-            throwWindow(target, aim: s.frame, velocity: event.phase == .ended ? s.velocity(at: t) : .zero)
-        default:
-            break
+        throwWindow(target, aim: s.frame, velocity: event.phase == .ended ? s.velocity(at: event.timestamp) : .zero)
         }
+
+    /// Should the fingers' lift reach another window after all (a notification banner over this
+    /// one, the displays changing under it), it still ends the swipe: the window flies into its
+    /// corner and the pointer shows again, where before it stayed hidden until Cra quit (#516).
+    private func watchForLift() {
+        guard liftMonitors.isEmpty else { return }
+        let lifted = { [weak self] (e: NSEvent) in
+            guard e.momentumPhase.isEmpty, e.phase == .ended || e.phase == .cancelled else { return }
+            MainActor.assumeIsolated {
+                guard let self, let target = self.target, self.swipe != nil else { return }
+                CraLog.note("pip: swipe lifted over another window")
+                self.endSwipe(target, e)
+            }
+        }
+        if let m = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel, handler: { [weak self] e in
+            if e.window !== self?.window { lifted(e) }
+            return e
+        }) { liftMonitors.append(m) }
+        if let m = NSEvent.addGlobalMonitorForEvents(matching: .scrollWheel, handler: lifted) { liftMonitors.append(m) }
     }
 
     /// The fingers lifted with the window shown at its own frame and aimed at `aim` (where the
@@ -713,22 +757,25 @@ final class PictureInPictureOverlayView: NSView {
 
     /// Scroll events go to the window under the pointer, so once the window slid out from under
     /// it the fingers moved whatever was behind instead. As in Arc, the pointer hides when the
-    /// window starts to move and rides along at its spot in the window until the fingers lift.
-    private func carryPointer(from old: CGPoint, to origin: CGPoint) {
-        if carried == nil {
-            let m = NSEvent.mouseLocation
-            carried = CGVector(dx: m.x - old.x, dy: m.y - old.y)
+    /// window starts to move and rides along at its spot in the window (`pointer`, from the
+    /// window's origin) until the fingers lift.
+    private func carryPointer(to origin: CGPoint, at pointer: CGVector) {
+        if !carrying {
+            carrying = true
             NSCursor.hide()
         }
-        guard let c = carried, let primary = NSScreen.screens.first else { return }
-        CGWarpMouseCursorPosition(CGPoint(x: origin.x + c.dx, y: primary.frame.maxY - (origin.y + c.dy)))
+        guard let primary = NSScreen.screens.first else { return }
+        CGWarpMouseCursorPosition(CGPoint(x: origin.x + pointer.dx, y: primary.frame.maxY - (origin.y + pointer.dy)))
         // A warp holds the pointer's own moves back for a quarter of a second; this lifts the hold.
         CGAssociateMouseAndMouseCursorPosition(1)
     }
 
+    /// The swipe is over: the pointer shows again and the lift is no longer watched for.
     private func releasePointer() {
-        guard carried != nil else { return }
-        carried = nil
+        liftMonitors.forEach { NSEvent.removeMonitor($0) }
+        liftMonitors = []
+        guard carrying else { return }
+        carrying = false
         NSCursor.unhide()
     }
 
@@ -746,11 +793,14 @@ final class PictureInPictureOverlayView: NSView {
     @objc private func tick(_ link: any FrameTicker) {
         let dt = lastTick == 0 ? link.targetTimestamp - link.timestamp : link.timestamp - lastTick
         lastTick = link.timestamp
-        guard let target else { return stopLink() }
+        guard let target else {
+            releasePointer()
+            return stopLink()
+        }
         if let s = swipe {
             let origin = s.origin(at: link.timestamp)
             guard origin != target.frame.origin else { return }
-            carryPointer(from: target.frame.origin, to: origin)
+            if let pointer = s.pointer { carryPointer(to: origin, at: pointer) }
             target.setFrameOrigin(origin)
             return
         }

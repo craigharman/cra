@@ -300,8 +300,14 @@ public struct SidebarItem: Identifiable, Codable, Equatable {
 }
 
 public struct Space: Identifiable, Codable, Equatable {
+    /// User-entered Space names are short labels. Count Swift Characters so a composed emoji or
+    /// non-Latin character consumes one place rather than its UTF-8 byte count.
+    public static let maximumTitleLength = 60
+
     public var id: UUID
-    public var title: String
+    public var title: String {
+        didSet { title = Self.limitedTitle(title) }
+    }
     public var emoji: String
     public var theme: SpaceTheme
     public var favoritesContainerID: UUID
@@ -328,7 +334,7 @@ public struct Space: Identifiable, Codable, Equatable {
                 todayContainerID: UUID, createdAt: Date, profileID: UUID? = nil, symbol: String? = nil, standaloneWindowID: UUID? = nil,
                 iconImage: Data? = nil) {
         self.id = id
-        self.title = title
+        self.title = Self.limitedTitle(title)
         self.emoji = emoji
         self.theme = theme
         self.favoritesContainerID = favoritesContainerID
@@ -339,6 +345,12 @@ public struct Space: Identifiable, Codable, Equatable {
         self.symbol = symbol
         self.standaloneWindowID = standaloneWindowID
         self.iconImage = iconImage
+    }
+
+    public mutating func rename(to title: String) { self.title = Self.limitedTitle(title) }
+
+    public static func limitedTitle(_ title: String) -> String {
+        title.count <= maximumTitleLength ? title : String(title.prefix(maximumTitleLength))
     }
 }
 
@@ -498,7 +510,7 @@ public enum SearchEngine: String, Codable, CaseIterable, Identifiable {
     }
     public func searchURL(_ query: String) -> String {
         let q = query.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed)?
-            .replacingOccurrences(of: "&", with: "%26") ?? query
+            .replacingOccurrences(of: "&", with: "%26").replacingOccurrences(of: "+", with: "%2B") ?? query
         switch self {
         case .google: return "https://www.google.com/search?q=\(q)"
         case .duckduckgo: return "https://duckduckgo.com/?q=\(q)"
@@ -546,6 +558,14 @@ public struct AppSettings: Codable, Equatable {
     /// Arc; Zen's compact toolbar): the toolbar floats over the page and comes out when the pointer
     /// is at the card's top edge (ToolbarAutoHide). Only means something while `showToolbar` is on.
     public var autoHideToolbar: Bool = false
+    /// Settings ▸ Links ▸ "Hide the Little Window toolbar until you need it" (not in Arc, GitHub #435):
+    /// a Little Window's page takes its toolbar's room, and the toolbar slides in over the page's top
+    /// when the pointer rests there (`ToolbarAutoHide.littleWindowFloats`). ⌘L still edits the address.
+    public var autoHideLittleWindowToolbar: Bool = false
+    /// Settings ▸ Links ▸ "Hide the Peek toolbar until you need it" (not in Arc, GitHub #493): a Peek's
+    /// page takes its 32 pt bar's room, and the bar slides in over the card's top when the pointer rests
+    /// there (`ToolbarAutoHide.peekFloats`). Its own switch: the Little Window's doesn't reach a Peek.
+    public var autoHidePeekToolbar: Bool = false
     public var hasSeenImportPrompt: Bool = false
     /// Arc's per-site Developer Mode (⌃D): the toolbar shows the full URL in
     /// monospace with the developer icons, and the nav buttons move to the sidebar.
@@ -616,6 +636,10 @@ public struct AppSettings: Codable, Equatable {
     public var tabSleepAfter: TabSleepThreshold = .fourHours
     /// Tabs ▸ "Force tabs out of memory when the Mac is short of memory" (GitHub #153), off like Arc.
     public var tabSleepOnMemoryPressure: Bool = false
+    /// Tabs ▸ "Always keep these sites active" (GitHub #458), Arc's list at arc://settings/performance:
+    /// their pages are never closed by the clock or frozen, and go last when the Mac is short of memory.
+    /// For every profile: Cra's settings are one file.
+    public var keepActiveSites: [KeepActiveSite] = []
     /// Privacy ▸ "Always use secure connections": Chrome's HTTPS-Only Mode.
     public var httpsOnly: Bool = false
     /// Privacy ▸ "Fingerprinting protection" (not in Arc, off by default): Cra's Chromium adds
@@ -677,6 +701,10 @@ public struct AppSettings: Codable, Equatable {
     /// GitHub #307, not in Arc: ⌘T searches and lists only the open tabs of the window's space
     /// (`TabSearchScope.commandBarTabs`). Off is Arc's bar, which finds a tab in any space.
     public var commandBarCurrentSpaceOnly: Bool = false
+    /// Settings ▸ Advanced ▸ Command bar ▸ "Fill the command bar with the site’s color" (not in Arc,
+    /// GitHub #457): while Tab's site search is on, the bar takes the site's colour
+    /// (`ScopedSearchFill`). Off, the bar stays Arc's: the site only in the pill and a one-second wash.
+    public var commandBarSiteColor: Bool = false
     /// GitHub #344, not in Arc: a click on the sidebar's URL field edits the address where it is
     /// (`SidebarAddressEdit`). Off is Arc's, which opens the command bar; ⌘L opens it either way.
     public var editAddressInPlace: Bool = false
@@ -689,6 +717,8 @@ public struct AppSettings: Codable, Equatable {
     /// GitHub #24, not in Arc: the page fills the window with no margin and no rounded
     /// card, like a traditional browser. Off by default.
     public var edgeToEdgeContent: Bool = false
+    /// GitHub #464, not in Arc: the sidebar docks on the window's right (SidebarSide). Left is Arc's.
+    public var sidebarSide: SidebarSide = .left
     /// GitHub #91, Settings ▸ Performance: Cra records its own performance on this Mac (stalls,
     /// CPU and memory per process, tab timings) for Help ▸ Export Diagnostics. On by default in
     /// early releases; nothing leaves the Mac. Changing the default needs no migration.
@@ -805,16 +835,20 @@ public struct WindowSession: Codable, Equatable, Identifiable {
     public var selectedTabPerSpace: [UUID: UUID] = [:]
     public var frame: String?
     public var sidebarVisible = true
+    /// In macOS full screen (the green button, ⌃⌘F; not a page's video), so the window opens in
+    /// full screen again (#426). `frame` stays the windowed frame it leaves full screen to.
+    public var fullScreen = false
     /// Incognito windows show a space of their own, never saved (SidebarStore.addIncognitoWindow).
     public var isIncognito = false
 
     public init(id: UUID = UUID(), focusedSpaceID: UUID? = nil, selectedTabPerSpace: [UUID: UUID] = [:], frame: String? = nil,
-                sidebarVisible: Bool = true, isIncognito: Bool = false) {
+                sidebarVisible: Bool = true, fullScreen: Bool = false, isIncognito: Bool = false) {
         self.id = id
         self.focusedSpaceID = focusedSpaceID
         self.selectedTabPerSpace = selectedTabPerSpace
         self.frame = frame
         self.sidebarVisible = sidebarVisible
+        self.fullScreen = fullScreen
         self.isIncognito = isIncognito
     }
 }
@@ -913,6 +947,8 @@ extension AppSettings {
         }
         toolbarShowsFullURL = try c.decodeIfPresent(Bool.self, forKey: .toolbarShowsFullURL) ?? false
         autoHideToolbar = try c.decodeIfPresent(Bool.self, forKey: .autoHideToolbar) ?? false
+        autoHideLittleWindowToolbar = try c.decodeIfPresent(Bool.self, forKey: .autoHideLittleWindowToolbar) ?? false
+        autoHidePeekToolbar = try c.decodeIfPresent(Bool.self, forKey: .autoHidePeekToolbar) ?? false
         hasSeenImportPrompt = try c.decodeIfPresent(Bool.self, forKey: .hasSeenImportPrompt) ?? false
         developerHosts = try c.decodeIfPresent(Set<String>.self, forKey: .developerHosts) ?? []
         disabledDefaultDeveloperHosts = try c.decodeIfPresent(Set<String>.self, forKey: .disabledDefaultDeveloperHosts) ?? []
@@ -943,6 +979,7 @@ extension AppSettings {
         tabSleepTimerEnabled = try c.decodeIfPresent(Bool.self, forKey: .tabSleepTimerEnabled) ?? true
         tabSleepAfter = (try? c.decodeIfPresent(TabSleepThreshold.self, forKey: .tabSleepAfter)) ?? .fourHours
         tabSleepOnMemoryPressure = try c.decodeIfPresent(Bool.self, forKey: .tabSleepOnMemoryPressure) ?? false
+        keepActiveSites = (try? c.decodeIfPresent([KeepActiveSite].self, forKey: .keepActiveSites)) ?? []
         httpsOnly = try c.decodeIfPresent(Bool.self, forKey: .httpsOnly) ?? false
         fingerprintingProtection = try c.decodeIfPresent(Bool.self, forKey: .fingerprintingProtection) ?? false
         websiteAppearance = (try? c.decodeIfPresent(WebsiteAppearance.self, forKey: .websiteAppearance)) ?? .automatic
@@ -970,10 +1007,12 @@ extension AppSettings {
         calendarMeetingLink = (try? c.decodeIfPresent(CalendarPreview.LinkTiming.self, forKey: .calendarMeetingLink)) ?? .twoMinutes
         searchSuggestions = try c.decodeIfPresent(Bool.self, forKey: .searchSuggestions) ?? true
         commandBarCurrentSpaceOnly = try c.decodeIfPresent(Bool.self, forKey: .commandBarCurrentSpaceOnly) ?? false
+        commandBarSiteColor = try c.decodeIfPresent(Bool.self, forKey: .commandBarSiteColor) ?? false
         editAddressInPlace = try c.decodeIfPresent(Bool.self, forKey: .editAddressInPlace) ?? false
         showSpaceHeaderOnSingleSpace = try c.decodeIfPresent(Bool.self, forKey: .showSpaceHeaderOnSingleSpace) ?? true
         sharedFavorites = try c.decodeIfPresent(Bool.self, forKey: .sharedFavorites) ?? false
         edgeToEdgeContent = try c.decodeIfPresent(Bool.self, forKey: .edgeToEdgeContent) ?? false
+        sidebarSide = (try? c.decodeIfPresent(SidebarSide.self, forKey: .sidebarSide)) ?? .left
         perfRecording = try c.decodeIfPresent(Bool.self, forKey: .perfRecording) ?? Self.perfRecordingDefault
         perfHidesSiteNames = try c.decodeIfPresent(Bool.self, forKey: .perfHidesSiteNames) ?? false
         tidyTabs = try c.decodeIfPresent(Bool.self, forKey: .tidyTabs) ?? true
@@ -1023,6 +1062,7 @@ extension WindowSession {
         selectedTabPerSpace = try c.decodeIfPresent([UUID: UUID].self, forKey: .selectedTabPerSpace) ?? [:]
         frame = try c.decodeIfPresent(String.self, forKey: .frame)
         sidebarVisible = try c.decodeIfPresent(Bool.self, forKey: .sidebarVisible) ?? true
+        fullScreen = try c.decodeIfPresent(Bool.self, forKey: .fullScreen) ?? false
     }
 }
 
@@ -1030,6 +1070,8 @@ extension Space {
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         id = try c.decode(UUID.self, forKey: .id)
+        // A name saved before the limit, or by another Mac, loads as it was: the limit applies where a
+        // name is typed, and menus abbreviate a long one (SpaceMenuTitle), so loading never rewrites it.
         title = try c.decode(String.self, forKey: .title)
         emoji = try c.decode(String.self, forKey: .emoji)
         theme = try c.decode(SpaceTheme.self, forKey: .theme)
@@ -1104,4 +1146,3 @@ public enum WebsiteAppearance: String, Codable, CaseIterable, Sendable {
         }
     }
 }
-

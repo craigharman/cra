@@ -44,6 +44,7 @@ struct TestItem {
 }
 enum TestRoot { case today }
 @MainActor final class SidebarStore {
+    static let documentReplaced = Notification.Name("CraSidebarDocumentReplaced")
     struct Settings {
         var autoPictureInPicture = false
         /// Hosts whose Site Control Center switch turned automatic Picture in Picture off.
@@ -54,6 +55,9 @@ enum TestRoot { case today }
         var shareThemeWithWebsites = true
         var blockCookieBanners = false
         var littleWindowOnOptionCommandClick = false
+        /// Settings ▸ Tabs ▸ "Always keep these sites active" (#458), by host; AppSettings matches subdomains.
+        var keepActiveHosts: Set<String> = []
+        func keepsActive(url: String) -> Bool { keepActiveHosts.contains(URL(string: url)?.host ?? "") }
     }
     func cookieBannerCSS(item: UUID) -> String? { settings.blockCookieBanners ? "#onetrust-banner-sdk { display: none !important; }" : nil }
     func themeDataCSS(item: UUID, systemDark: Bool) -> String? {
@@ -62,9 +66,12 @@ enum TestRoot { case today }
     var settings = Settings()
     var items: [UUID: TestItem] = [:]
     func item(_ id: UUID) -> TestItem? { items[id] }
+    private let focusedAskSpace = UUID()
+    func focusedSpaceID(window: UUID?) -> UUID { focusedAskSpace }
     var incognitoItems: Set<UUID> = []
     func isIncognito(item: UUID) -> Bool { incognitoItems.contains(item) }
-    func profilePath(item: UUID) -> String? { nil }
+    var profilePaths: [UUID: String] = [:]
+    func profilePath(item: UUID) -> String? { profilePaths[item] }
     func profileDirectoryName(item: UUID) -> String { "Default" }
     func spaceID(ofItem: UUID) -> UUID? { nil }
     func splitContaining(_ id: UUID) -> TestItem? {
@@ -86,7 +93,9 @@ enum TestRoot { case today }
     var visits: [String] = []
     func recordVisit(url: String, title: String) { visits.append(url) }
     func clearHistory(_ range: BrowsingDataClear.Range) {}
-    func selectTab(_ id: UUID, window: UUID?) {}
+    /// The tabs selected, in order (Picture in Picture's Back to Tab selects; Minimize doesn't).
+    private(set) var selections: [UUID] = []
+    func selectTab(_ id: UUID, window: UUID?) { selections.append(id) }
     func markUnread(_ id: UUID, _ unread: Bool) {}
     @discardableResult
     func createTab(url: String, in space: UUID? = nil, select: Bool = false,
@@ -118,6 +127,16 @@ enum EmbeddedPages {
     static func isHost(_ window: NSWindow) -> Bool { viewsByHost[ObjectIdentifier(window)] != nil }
     static func pageViews(of window: NSWindow) -> [NSView]? { viewsByHost[ObjectIdentifier(window)] }
 }
+/// The engine's DevTools in a card (Sources/Cra/UI/Windows/EmbeddedDevTools.swift): the same rule for whose they
+/// are, and no card here, so no frontend is ever in one.
+@MainActor enum EmbeddedDevTools {
+    final class Holder: NSView {}
+    static func applies(to browser: CraBrowser?) -> Bool {
+        guard let browser else { return false }
+        return browser.hostWindow == nil && !(browser is WebKitBrowser)
+    }
+    static func holder(of w: NSWindow?) -> Holder? { nil }
+}
 final class LiveFolderManager {
     static let shared = LiveFolderManager()
     func pageChanged(tab: UUID, to url: String) {}
@@ -128,6 +147,7 @@ struct PictureInPictureActions {
     var skip: (Double) -> Void
     var seek: (Double) -> Void
     var close: () -> Void
+    var minimize: () -> Void = {}
 }
 final class PictureInPictureChrome {
     static let shared = PictureInPictureChrome()

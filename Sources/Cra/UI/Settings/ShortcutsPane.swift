@@ -318,7 +318,7 @@ enum ShortcutDescriptions {
     static func text(for a: KeyAction) -> String {
         if let description = LiveFolderPluginStore.shared.entry(forCommand: a.id)?.package.manifest.command?.description { return description }
         if let t = table[a.id] { return t }
-        if a.id.hasPrefix("item"), let n = a.id.dropFirst(4).first { return "Switch to the \(n). tab in the sidebar." }
+        if a.id.hasPrefix("item"), let n = a.id.dropFirst(4).first { return "Switch to the \(n). item in the sidebar. A split counts as one." }
         if a.id.hasPrefix("space"), let n = a.id.dropFirst(5).first { return "Switch to the \(n). space." }
         if a.id.hasPrefix("moveTabToSpace"), let n = a.id.dropFirst(14).first { return "Move the current tab, or a Little Window's page, to the \(n). space and switch to it." }
         return a.name + "."
@@ -376,12 +376,15 @@ enum ShortcutDescriptions {
         "previousTab": "Switch to the previous tab.",
         "recentTab": "Open the tab switcher and cycle through recent tabs, like ⌘Tab for apps.",
         "recentTabBackward": "Cycle backwards through recent tabs in the tab switcher.",
+        "recentTabAllSpaces": "Open the tab switcher on recent tabs from every space. Picking one goes to its space; a quick tap goes back.",
+        "recentTabAllSpacesBackward": "Cycle backwards through recent tabs from every space.",
         "clearToday": "Archive today’s tabs, except the one on screen and any playing sound.",
         "favoriteTab": "Add the tab to the favorites grid.",
         "renameTab": "Give the tab a name of your own.",
         "duplicateTab": "Open a copy of the tab.",
         "resetTab": "Return a pinned tab to its original URL.",
         "muteTab": "Mute or unmute the tab.",
+        "pauseAllMedia": "Pause the audio and video playing in every window, space and profile. Sleeping tabs stay asleep, and nothing starts playing again by itself.",
         "goBack": "Go back a page.",
         "goForward": "Go forward a page.",
         "viewArchive": "Open the archive of closed tabs.",

@@ -13,14 +13,14 @@ struct AirTrafficControlView: View {
 
     var body: some View {
         WithPerceptionTracking {
-            @Perception.Bindable var store = store
+        @Perception.Bindable var store = store
         VStack(spacing: 0) {
             HStack(spacing: 0) {
                 Text("Air Traffic Control").font(.system(size: 13, weight: .bold))
                 Spacer(minLength: 8)
                 Button { addRoute() } label: { Text("New Route").frame(width: 94) }
                     .controlSize(.large)
-                        .roundedButtonBorder(radius: 6)
+                    .roundedButtonBorder(radius: 6)
                 Button { dismiss() } label: {
                     Image(systemName: "xmark").font(.system(size: 15, weight: .light)).frame(width: 32, height: 32).contentShape(Rectangle())
                 }
@@ -48,7 +48,7 @@ struct AirTrafficControlView: View {
         .frame(width: 508, height: 440)
         // Arc opens the sheet with nothing focused; AppKit would select the first route's text.
         .onAppear { DispatchQueue.main.async { NSApp.keyWindow?.makeFirstResponder(nil) } }
-    }
+        }
     }
 
     private var routes: some View {
@@ -57,18 +57,17 @@ struct AirTrafficControlView: View {
             ScrollView(.vertical) {
                 VStack(spacing: 24) {
                     ForEach(store.settings.linkRoutes) { route in
-                            WithPerceptionTracking {
+                        WithPerceptionTracking {
                         routeRow(route.id).id(route.id)
+                        }
                     }
                 }
-                    }
                 .padding(.top, 24)
                 .padding(.bottom, 16)
                 .padding(.leading, 31)
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
             .overlay {
-                    WithPerceptionTracking {
                 if store.settings.linkRoutes.isEmpty {
                     Text("Add a route to open matching links from other apps in a chosen space.")
                         .font(.system(size: 12)).foregroundStyle(.secondary)
@@ -76,14 +75,13 @@ struct AirTrafficControlView: View {
                         .frame(maxWidth: 300)
                 }
             }
-                }
-                .onChange(of: store.settings.linkRoutes.last?.id) { id in
+            .onChange(of: store.settings.linkRoutes.last?.id) { id in
                 guard let id, focusedRoute == id else { return }
                 withAnimation { proxy.scrollTo(id, anchor: .bottom) }
             }
         }
         .frame(maxHeight: .infinity)
-    }
+        }
     }
 
     private func routeRow(_ id: UUID) -> some View {
@@ -95,9 +93,7 @@ struct AirTrafficControlView: View {
                     .frame(width: 49, alignment: .leading)
                     .accessibilityLabel("Link URL")
                 Picker("Match", selection: binding(id, \.match)) {
-                        ForEach(LinkMatchStyle.allCases) { item in
-                            WithPerceptionTracking { Text(item.label).tag(item) }
-                        }
+                    ForEach(LinkMatchStyle.allCases) { item in WithPerceptionTracking { Text(item.label).tag(item) } }
                 }
                 .labelsHidden()
                 .frame(width: 110)
@@ -121,7 +117,7 @@ struct AirTrafficControlView: View {
             }
             .padding(.leading, 74)
         }
-    }
+        }
     }
 
     /// Arc's destination menu: an "Open in Space" header over Most Recent Space and
@@ -153,11 +149,12 @@ struct AirTrafficControlView: View {
                 Section("Open in Space") {
                     Text("Most Recent Space").tag(LinkDestination.mostRecentSpace)
                     ForEach(spaces) { space in
-                            WithPerceptionTracking {
-                        Text(space.labeled).tag(LinkDestination.space(space.id))
+                        WithPerceptionTracking {
+                        let title = SpaceMenuTitle.plain(space.labeled)
+                        Text(title.title).help(title.fullTitle).tag(LinkDestination.space(space.id))
+                        }
                     }
                 }
-                    }
                 Divider()
                 Text("Little Window").tag(LinkDestination.littleWindowInUse)
             }
@@ -168,18 +165,19 @@ struct AirTrafficControlView: View {
                     Section("Little Window in") {
                         Text("Most Recent Space").tag(UUID?.none)
                         ForEach(spaces) { space in
-                                WithPerceptionTracking {
-                            Text(space.labeled).tag(UUID?.some(space.id))
+                            WithPerceptionTracking {
+                            let title = SpaceMenuTitle.plain(space.labeled)
+                            Text(title.title).help(title.fullTitle).tag(UUID?.some(space.id))
+                            }
                         }
                     }
                 }
-                    }
                 .labelsHidden()
                 .frame(width: 165)
                 .help("The space the Little Window opens in: the page loads with its sign-ins, and ⌘O moves it there")
             }
         }
-    }
+        }
     }
 
     private func binding<T>(_ id: UUID, _ key: WritableKeyPath<LinkRoute, T>) -> Binding<T> {
@@ -206,12 +204,10 @@ struct AirTrafficControlView: View {
 /// Secondary 13 pt label with its symbol in front ("🔗 URL", "↳ Open in").
 private struct RouteLabelStyle: LabelStyle {
     func makeBody(configuration: Configuration) -> some View {
-        WithPerceptionTracking {
         HStack(spacing: 6) {
             configuration.icon.font(.system(size: 12))
             configuration.title.font(.system(size: 13))
         }
         .foregroundStyle(.secondary)
     }
-}
 }

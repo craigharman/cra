@@ -102,8 +102,12 @@ struct ImportFlowView: View {
         }
         .frame(width: ImportWindowController.size.width, height: ImportWindowController.size.height)
         .ignoresSafeArea()
+        // Back from System Settings with Full Disk Access on: read the picked browser again.
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            model.recheckFullDiskAccess()
+        }
+        }
     }
-}
 }
 
 // MARK: - Steps
@@ -113,7 +117,6 @@ struct StepHeader: View {
     let subtitle: String
     let c: ImportColors
     var body: some View {
-        WithPerceptionTracking {
         // Dia sets these in Exposure; New York is the closest face macOS ships.
         Text(title)
             .font(.system(size: 29, weight: .regular, design: .serif))
@@ -129,7 +132,6 @@ struct StepHeader: View {
             .frame(width: 431, height: 46, alignment: .topLeading)
             .offset(y: ImportMetrics.subtitleTop)
     }
-}
 }
 
 /// Dia's NewDefaultBrowserView: three DefaultBrowserCheckboxRows (title and
@@ -180,8 +182,8 @@ private struct DefaultBrowserStep: View {
             .frame(width: ImportMetrics.columnWidth + 2)
             .offset(x: -1, y: ImportMetrics.buttonTop)
         }
+        }
     }
-}
 }
 
 private struct SourceStep: View {
@@ -197,37 +199,48 @@ private struct SourceStep: View {
             // Three rows of cards fit; more browsers scroll under a soft edge.
             ScrollView {
                 LazyVGrid(columns: cols, alignment: .leading, spacing: ImportMetrics.gap) {
-                    ForEach(model.sources) { s in
-                            WithPerceptionTracking {
+                    ForEach(model.listedSources) { s in
+                        WithPerceptionTracking {
                         BrowserCard(source: s, model: model, c: c)
+                        }
                     }
                 }
-                    }
                 .padding(.vertical, 8)
             }
             .scrollIndicators(.never)
             .frame(width: ImportMetrics.columnWidth, height: ImportMetrics.listHeight + 8, alignment: .topLeading)
             .mask(ScrollFade())
             .offset(y: ImportMetrics.listTop - 8)
-            if let err = model.loadError {
+            if model.needsFullDiskAccess, let name = model.source?.rawValue {
+                Text("macOS keeps \(name)'s data from other apps. Turn on Cra in Full Disk Access, then come back here. If Cra is already on, quit and reopen Cra.")
+                    .font(.system(size: 12)).foregroundStyle(c.body)
+                    .frame(width: ImportMetrics.columnWidth, alignment: .leading)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(width: ImportMetrics.columnWidth, height: 44, alignment: .bottomLeading)
+                    .offset(y: ImportMetrics.buttonTop - 52)
+            } else if let err = model.loadError {
                 Text(err).font(.system(size: 12)).foregroundStyle(.red.opacity(0.8))
                     .offset(y: ImportMetrics.buttonTop - 28)
             }
+            // A browser macOS keeps from Cra turns Continue into the way to Full Disk Access.
+            let title = model.needsFullDiskAccess ? "Open Full Disk Access" : "Continue"
+            let enabled = model.needsFullDiskAccess || model.canContinueFromSource
+            let action = { model.needsFullDiskAccess ? model.openFullDiskAccessSettings() : model.continueFromSource() }
             if model.firstRun {
                 // Dia's onboarding offers "skip the importing process" beside Continue.
                 HStack(spacing: 6) {
                     SecondaryButton(title: "Skip", c: c) { model.skipImport() }.frame(width: 146)
-                    PrimaryButton(title: "Continue", c: c, enabled: model.canContinueFromSource, width: 290) { model.continueFromSource() }
+                    PrimaryButton(title: title, c: c, enabled: enabled, width: 290, action: action)
                 }
                 .frame(width: ImportMetrics.columnWidth + 2)
                 .offset(x: -1, y: ImportMetrics.buttonTop)
             } else {
-                PrimaryButton(title: "Continue", c: c, enabled: model.canContinueFromSource) { model.continueFromSource() }
+                PrimaryButton(title: title, c: c, enabled: enabled, action: action)
                     .offset(x: -1, y: ImportMetrics.buttonTop)
             }
         }
+        }
     }
-}
 }
 
 private struct SpacesStep: View {
@@ -244,15 +257,15 @@ private struct SpacesStep: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 8) {
                     ForEach(Array((plan?.spaces ?? []).enumerated()), id: \.offset) { i, sp in
-                            WithPerceptionTracking {
+                        WithPerceptionTracking {
                         SelectableRow(c: c, checked: model.selectedSpaces.contains(i),
                                       onHover: { if $0 { model.previewSpace = i } },
                                       toggle: { model.toggleSpace(i) }) {
                             Text(sp.emoji).font(.system(size: 18)).frame(width: 24)
                             RowTitle(title: sp.title, caption: "\(sp.itemCount) tab\(sp.itemCount == 1 ? "" : "s")", c: c)
                         }
-                    }
                         }
+                    }
                     if let plan, !plan.favorites.isEmpty || !plan.archive.isEmpty || model.includeSettings {
                         Text("Also bring over")
                             .font(.system(size: 12, weight: .medium)).foregroundStyle(c.caption)
@@ -286,8 +299,8 @@ private struct SpacesStep: View {
             PrimaryButton(title: "Continue", c: c, enabled: model.hasAnythingSelected) { model.continueFromSpaces() }
                 .offset(x: -1, y: ImportMetrics.buttonTop)
         }
+        }
     }
-}
 }
 
 private struct ExtensionsStep: View {
@@ -302,7 +315,7 @@ private struct ExtensionsStep: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 8) {
                     ForEach(model.extensions) { e in
-                            WithPerceptionTracking {
+                        WithPerceptionTracking {
                         let installed = ExtensionStore.isInstalled(id: e.id)
                         // Arc keeps extensions per profile: say which profiles it goes to (#131).
                         let profiles = model.profileNames(of: e).map { " · " + $0.joined(separator: ", ") } ?? ""
@@ -313,9 +326,9 @@ private struct ExtensionsStep: View {
                                         : (e.isEnabled ? e.version + profiles : "Turned off in \(model.source?.rawValue ?? "Arc")"),
                                      c: c)
                         }
+                        }
                     }
                 }
-                    }
                 .padding(.bottom, 12)
             }
             .scrollIndicators(.never)
@@ -331,8 +344,8 @@ private struct ExtensionsStep: View {
             .frame(width: ImportMetrics.columnWidth + 2)
             .offset(x: -1, y: ImportMetrics.buttonTop)
         }
+        }
     }
-}
 }
 
 private struct ProgressStep: View {
@@ -362,16 +375,12 @@ private struct ProgressStep: View {
                         GridItem(.fixed(ImportMetrics.card.width))]
             VStack(alignment: .leading, spacing: 12) {
                 LazyVGrid(columns: cols, alignment: .leading, spacing: gap) {
-                        ForEach(model.categories) { item in
-                            WithPerceptionTracking { CategoryTile(category: item, c: c, height: compact ? 52 : 64) }
-                        }
+                    ForEach(model.categories) { item in WithPerceptionTracking { CategoryTile(category: item, c: c, height: compact ? 52 : 64) } }
                 }
                 // The notes follow the grid, so they never run into the tiles.
                 if model.finished {
                     VStack(alignment: .leading, spacing: 4) {
-                            ForEach(model.failures, id: \.self) { item in
-                                WithPerceptionTracking { Text(item).lineLimit(2) }
-                            }
+                        ForEach(model.failures, id: \.self) { item in WithPerceptionTracking { Text(item).lineLimit(2) } }
                         if model.importedExtensionCount > 0 {
                             Text("Cra restarts once to load your extensions. Their settings and sign-ins stay in \(model.source?.rawValue ?? "Arc").")
                         } else if model.credentialsStaged {
@@ -388,8 +397,8 @@ private struct ProgressStep: View {
                           c: c, enabled: model.finished) { model.continueFromProgress() }
                 .offset(x: -1, y: ImportMetrics.buttonTop)
         }
+        }
     }
-}
 }
 
 // MARK: - Controls
@@ -397,14 +406,12 @@ private struct ProgressStep: View {
 /// Soft top and bottom edges on the scrolling lists.
 struct ScrollFade: View {
     var body: some View {
-        WithPerceptionTracking {
         VStack(spacing: 0) {
             LinearGradient(colors: [.clear, .black], startPoint: .top, endPoint: .bottom).frame(height: 8)
             Color.black
             LinearGradient(colors: [.black, .clear], startPoint: .top, endPoint: .bottom).frame(height: 16)
         }
     }
-}
 }
 
 /// Dia's ImportBrowserItemView: logo, name, radio; the selected card shows how
@@ -415,20 +422,34 @@ private struct BrowserCard: View {
     let c: ImportColors
     @State private var hover = false
 
+    /// Checked as the card draws, so it clears once Full Disk Access is on.
+    private var blocked: Bool { model.source == source ? model.needsFullDiskAccess : source.needsFullDiskAccess }
+
     var body: some View {
         WithPerceptionTracking {
         let selected = model.source == source
+        // Listed but not on this Mac (or nothing to bring over): shown dimmed, not pickable.
+        let available = model.sources.contains(source)
         let shape = RoundedRectangle(cornerRadius: 22, style: .continuous)
         ZStack(alignment: .topLeading) {
-            shape.fill(hover ? c.cardHover : .clear)
+            shape.fill(hover && available ? c.cardHover : .clear)
             shape.strokeBorder(selected ? c.cardBorderSelected : c.cardBorder, lineWidth: 0.5)
             Image(nsImage: source.icon)
                 .resizable().interpolation(.high)
                 .frame(width: 52, height: 52)
+                .saturation(available ? 1 : 0.2)
+                .opacity(available ? 1 : 0.45)
                 .offset(x: 19, y: 14)
             VStack(alignment: .leading, spacing: 2) {
                 Text(source.rawValue).font(.system(size: 16, weight: .medium)).foregroundStyle(c.title)
-                if selected, let plan = model.plan, !plan.spaces.isEmpty {
+                    .opacity(available ? 1 : 0.45)
+                if !available {
+                    Text(source.isInstalled ? "Nothing to import" : "Not on this Mac")
+                        .font(.system(size: 11)).foregroundStyle(c.caption).lineLimit(1)
+                } else if blocked {
+                    Text("Needs Full Disk Access").font(.system(size: 11)).foregroundStyle(c.body)
+                        .lineLimit(2).fixedSize(horizontal: false, vertical: true)
+                } else if selected, let plan = model.plan, !plan.spaces.isEmpty {
                     Button { model.continueFromSource() } label: {
                         Text("\(model.selectedSpaces.count) of \(plan.spaces.count) spaces")
                             .font(.system(size: 11)).foregroundStyle(c.body).underline(hover)
@@ -437,21 +458,23 @@ private struct BrowserCard: View {
                     .transition(.opacity)
                 }
             }
-            .frame(width: 80, height: ImportMetrics.card.height, alignment: .leading)
+            .frame(width: available ? 80 : 120, height: ImportMetrics.card.height, alignment: .leading)
             .offset(x: 82)
-            RadioDot(on: selected, c: c)
-                .offset(x: 161.5, y: 28)
+            if available {
+                RadioDot(on: selected, c: c)
+                    .offset(x: 161.5, y: 28)
+            }
         }
         .frame(width: ImportMetrics.card.width, height: ImportMetrics.card.height)
         .contentShape(shape)
         .onHover { hover = $0 }
         .onTapGesture { withAnimation(.easeOut(duration: 0.18)) { model.select(source) } }
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(source.rawValue)
+        .accessibilityLabel(available ? source.rawValue : "\(source.rawValue), \(source.isInstalled ? "nothing to import" : "not on this Mac")")
         .accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)
         .accessibilityAction { withAnimation(.easeOut(duration: 0.18)) { model.select(source) } }
+        }
     }
-}
 }
 
 /// 24 pt ring (1.5 pt); selected adds a 17.5 pt disc.
@@ -459,7 +482,6 @@ struct RadioDot: View {
     let on: Bool
     let c: ImportColors
     var body: some View {
-        WithPerceptionTracking {
         ZStack {
             Circle().strokeBorder(on ? c.ink.opacity(0.98) : c.radioRing, lineWidth: 1.5)
             if on { Circle().fill(c.ink.opacity(0.98)).frame(width: 17.5, height: 17.5).transition(.scale.combined(with: .opacity)) }
@@ -467,14 +489,12 @@ struct RadioDot: View {
         .frame(width: 24, height: 24)
     }
 }
-}
 
 /// Dia's rebrand_checkbox: 18 pt rounded square, filled with a tick when on.
 struct CheckBox: View {
     let on: Bool
     let c: ImportColors
     var body: some View {
-        WithPerceptionTracking {
         let shape = RoundedRectangle(cornerRadius: 5, style: .continuous)
         ZStack {
             if on {
@@ -486,7 +506,6 @@ struct CheckBox: View {
         }
         .frame(width: 18, height: 18)
     }
-}
 }
 
 /// Dia's ImportSelectableCheckBox / SpaceCheckboxView row.
@@ -501,7 +520,6 @@ struct SelectableRow<Content: View>: View {
     @State private var hover = false
 
     var body: some View {
-        WithPerceptionTracking {
         let shape = RoundedRectangle(cornerRadius: 14, style: .continuous)
         HStack(spacing: 12) {
             content()
@@ -520,30 +538,25 @@ struct SelectableRow<Content: View>: View {
         .accessibilityAction { if !disabled { withAnimation(.easeOut(duration: 0.15)) { toggle() } } }
     }
 }
-}
 
 struct RowTitle: View {
     let title: String
     let caption: String
     let c: ImportColors
     var body: some View {
-        WithPerceptionTracking {
         VStack(alignment: .leading, spacing: 1) {
             Text(title).font(.system(size: 14, weight: .medium)).foregroundStyle(c.title).lineLimit(1)
             Text(caption).font(.system(size: 12)).foregroundStyle(c.caption).lineLimit(1)
         }
     }
 }
-}
 
 struct RowSymbol: View {
     let name: String
     let c: ImportColors
     var body: some View {
-        WithPerceptionTracking {
         Image(systemName: name).font(.system(size: 14)).foregroundStyle(c.body).frame(width: 24)
     }
-}
 }
 
 struct ExtensionIcon: View {
@@ -551,7 +564,6 @@ struct ExtensionIcon: View {
     let size: CGFloat
     let c: ImportColors
     var body: some View {
-        WithPerceptionTracking {
         if let image {
             Image(nsImage: image).resizable().interpolation(.high).aspectRatio(contentMode: .fit).frame(width: size, height: size)
         } else {
@@ -559,14 +571,12 @@ struct ExtensionIcon: View {
         }
     }
 }
-}
 
 struct CategoryTile: View {
     let category: ImportCategory
     let c: ImportColors
     var height: CGFloat = 64
     var body: some View {
-        WithPerceptionTracking {
         let shape = RoundedRectangle(cornerRadius: 16, style: .continuous)
         HStack(spacing: 12) {
             Image(systemName: category.symbol).font(.system(size: 15)).foregroundStyle(c.body).frame(width: 22)
@@ -592,7 +602,6 @@ struct CategoryTile: View {
         .animation(.easeOut(duration: 0.2), value: category.state)
     }
 }
-}
 
 /// Full-width primary button with Dia's return-key glyph.
 struct PrimaryButton: View {
@@ -604,7 +613,6 @@ struct PrimaryButton: View {
     @State private var hover = false
 
     var body: some View {
-        WithPerceptionTracking {
         Button { if enabled { action() } } label: {
             HStack(spacing: 8) {
                 Text(title).font(.system(size: 13, weight: .semibold))
@@ -623,7 +631,6 @@ struct PrimaryButton: View {
         .frame(width: width)
     }
 }
-}
 
 struct SecondaryButton: View {
     let title: String
@@ -632,7 +639,6 @@ struct SecondaryButton: View {
     @State private var hover = false
 
     var body: some View {
-        WithPerceptionTracking {
         Button(action: action) {
             Text(title).font(.system(size: 13, weight: .semibold)).foregroundStyle(c.body)
                 .frame(maxWidth: .infinity)
@@ -645,14 +651,12 @@ struct SecondaryButton: View {
         .accessibilityLabel(title)
     }
 }
-}
 
 struct BackLink: View {
     let c: ImportColors
     let action: () -> Void
     @State private var hover = false
     var body: some View {
-        WithPerceptionTracking {
         Button(action: action) {
             HStack(spacing: 4) {
                 Image(systemName: "chevron.left").font(.system(size: 11, weight: .semibold))
@@ -666,14 +670,12 @@ struct BackLink: View {
         .offset(y: 22)
     }
 }
-}
 
 private struct CloseButton: View {
     let c: ImportColors
     let action: () -> Void
     @State private var hover = false
     var body: some View {
-        WithPerceptionTracking {
         Button(action: action) {
             Image(systemName: "xmark").font(.system(size: 15, weight: .light))
                 .foregroundStyle(c.dark ? .white.opacity(hover ? 0.95 : 0.7) : .black.opacity(hover ? 0.8 : 0.5))
@@ -686,5 +688,4 @@ private struct CloseButton: View {
         .onHover { hover = $0 }
         .accessibilityLabel("Close")
     }
-}
 }

@@ -34,6 +34,7 @@ final class PaneToolbarView: NSView {
         var host = ""
         var path = ""
         var sidebarVisible = true
+        var sidebarSide = SidebarSide.left
         var pinned: [Ext] = []
         /// A WebKit page's service: its extension buttons dim (none run there).
         var protectedMedia: String?
@@ -166,6 +167,7 @@ final class PaneToolbarView: NSView {
         m.canGoForward = nav.canGoForward
         m.isLoading = nav.isLoading
         m.sidebarVisible = store.window(ui.windowID).sidebarVisible
+        m.sidebarSide = store.settings.sidebarSide
         if let item, item.isEmptyTab {
             m.kind = .emptyPane
         } else if let item, let t = item.tab {
@@ -283,7 +285,8 @@ final class PaneToolbarView: NSView {
         (superview as? PaneCardView)?.developerBar = m.kind == .developer ? m.fill : nil
         hairline.isHidden = m.hairline == nil
         hairline.layer?.backgroundColor = m.hairline?.cgColor
-        let bar = ToolbarComposition(kind: m.kind, inSplit: m.inSplit, sidebarVisible: m.sidebarVisible, focusedPane: m.focusedPane,
+        let bar = ToolbarComposition(kind: m.kind, inSplit: m.inSplit, sidebarVisible: m.sidebarVisible, sidebarSide: m.sidebarSide,
+                                     focusedPane: m.focusedPane,
                                      hovered: m.hovered, canGoBack: m.canGoBack, canGoForward: m.canGoForward, isLoading: m.isLoading,
                                      pinnedExtensions: m.pinned.map(\.id), translatable: m.translation?.offersTranslation == true,
                                      blockedPopups: m.blockedPopups > 0)
@@ -294,8 +297,9 @@ final class PaneToolbarView: NSView {
         func view(_ item: ToolbarComposition.Item) -> NSView {
             switch item {
             case .toggleSidebar:
-                return glyph("toggle", "sidebar.left", help: m.sidebarVisible ? "Hide Sidebar (⌘S)" : "Show Sidebar (⌘S)",
-                             width: 37, iconSize: 15.5) { $0.actions.toggleSidebar() }
+                // At the bar's right end with the sidebar on the right, a right-hand box like its neighbours (#464).
+                return glyph("toggle", m.sidebarSide.toggleSymbol, help: m.sidebarVisible ? "Hide Sidebar (⌘S)" : "Show Sidebar (⌘S)",
+                             width: m.sidebarSide == .right ? rightBox : 37, iconSize: 15.5) { $0.actions.toggleSidebar() }
             case .back(let enabled):
                 return glyph("back", "arrow.left", help: wide ? "" : "Go Back (⌘[)", enabled: enabled, width: 37, iconSize: 15,
                              history: wide ? nil : .back) { if !wide { $0.navigate("goBack") } }
@@ -303,8 +307,12 @@ final class PaneToolbarView: NSView {
                 return glyph("forward", "arrow.right", help: wide ? "" : "Go Forward (⌘])", enabled: enabled, width: 37, iconSize: 15,
                              history: wide ? nil : .forward) { if !wide { $0.navigate("goForward") } }
             case .reload(let loading, let enabled):
-                return glyph("reload", loading ? "xmark" : "arrow.clockwise", help: enabled ? "Refresh (⌘R)" : "", enabled: enabled, width: 37,
+                let b = glyph("reload", loading ? "xmark" : "arrow.clockwise", help: enabled ? "Refresh (⌘R)" : "", enabled: enabled, width: 37,
                              iconSize: 15, animated: enabled) { if !wide { $0.navigate("reload") } }
+                // A right-click (or ⌃-click) shows the reload menu: Force Refresh, Clear Cookies, Clear Cache and the
+                // developer items. Its commands act on the focused page, so a split pane's bar keeps a plain button.
+                b.menuProvider = enabled && !m.inSplit ? { [actions] in ReloadMenu.make(actions) } : nil
+                return b
             case .copyURL:
                 return glyph("copy", "link", help: "Copy URL (⇧⌘C)", width: 28) { $0.actions.performAction("copyURL") }
             case .divider:

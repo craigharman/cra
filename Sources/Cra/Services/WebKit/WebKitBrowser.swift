@@ -52,6 +52,8 @@ final class WebKitBrowser: CraBrowser, WKNavigationDelegate, WKUIDelegate, WKDow
     private var historyIDs: [ObjectIdentifier: Int] = [:]
     private var historyItems: [Int: WKBackForwardListItem] = [:]
     private var findQuery = ""
+    private var findGeneration: UUID?
+    private var findQuote = false
     private var findCount = 0
     private var findIndex = 0
     private var messages: ScriptMessageProxy?
@@ -255,6 +257,11 @@ final class WebKitBrowser: CraBrowser, WKNavigationDelegate, WKUIDelegate, WKDow
     override var isPictureInPicturePlaying: Bool { pictureInPicturePlaying }
     override var isCapturingMedia: Bool { capturing }
     override var isAudible: Bool { audibleHold.audible }
+    /// WebKit reports no media session: the sidebar player follows the audible hold.
+    override var reportsMediaSession: Bool { false }
+    /// WebKit has no Chromium media session to call a sound uncontrollable: its sounds are the page's media
+    /// (`audibleHold`), and they make a card (the Chromium engine's own pages default to uncontrollable).
+    override var hasUncontrollableSound: Bool { false }
 
     /// Once per change of the three, as CEF's OnLoadingStateChange (each of them is observed).
     @MainActor
@@ -567,31 +574,41 @@ final class WebKitBrowser: CraBrowser, WKNavigationDelegate, WKUIDelegate, WKDow
         MainActor.assumeIsolated { webView?.pageZoom = CGFloat(pow(1.2, level)) }
     }
 
-    override func findText(_ text: String, forward: Bool, matchCase: Bool, findNext: Bool) {
+    override func findText(_ text: String, forward: Bool, matchCase: Bool, findNext: Bool, generation: UUID, quote: Bool) {
         MainActor.assumeIsolated {
             guard let web = webView, !text.isEmpty else { return }
+            let newGeneration = findGeneration != generation || findQuote != quote
+            if newGeneration {
+                stopFinding(false)
+                findGeneration = generation
+                findQuote = quote
+            }
             let config = WKFindConfiguration()
             config.backwards = !forward
             config.caseSensitive = matchCase
             config.wraps = true
-            let fresh = !findNext || text != findQuery
+            let fresh = newGeneration || !findNext || text != findQuery
             findQuery = text
-            web.find(text, configuration: config) { [weak self] result in
+            web.find(text, configuration: config) { [weak self, weak web] result in
                 MainActor.assumeIsolated {
-                    guard let self else { return }
+                    guard let self, let web, self.webView === web, self.findGeneration == generation,
+                          self.findQuery == text, self.findQuote == quote else { return }
                     guard result.matchFound else {
                         self.findCount = 0
                         self.findIndex = 0
-                        self.delegate?.browser?(self, didFindMatches: 0, activeMatch: 0)
+                        self.delegate?.browser?(self, didFindMatches: 0, activeMatch: 0, generation: generation,
+                                                quote: quote, identifier: -1, finalUpdate: true)
                         return
                     }
-                    let step = { [weak self] (count: Int) in
-                        guard let self else { return }
+                    let step = { [weak self, weak web] (count: Int) in
+                        guard let self, let web, self.webView === web, self.findGeneration == generation,
+                              self.findQuery == text, self.findQuote == quote else { return }
                         self.findCount = max(count, 1)
                         if fresh { self.findIndex = forward ? 1 : self.findCount } else {
                             self.findIndex = forward ? self.findIndex % self.findCount + 1 : (self.findIndex + self.findCount - 2) % self.findCount + 1
                         }
-                        self.delegate?.browser?(self, didFindMatches: self.findCount, activeMatch: self.findIndex)
+                        self.delegate?.browser?(self, didFindMatches: self.findCount, activeMatch: self.findIndex,
+                                                generation: generation, quote: quote, identifier: -1, finalUpdate: true)
                     }
                     if !fresh, self.findCount > 0 { return step(self.findCount) }
                     // WebKit's find doesn't count: the page's text does, the way find sees it.
@@ -613,6 +630,7 @@ final class WebKitBrowser: CraBrowser, WKNavigationDelegate, WKUIDelegate, WKDow
 
     override func stopFinding(_ clearSelection: Bool) {
         MainActor.assumeIsolated {
+            findGeneration = nil
             findQuery = ""
             findCount = 0
             findIndex = 0
@@ -814,6 +832,14 @@ final class WebKitBrowser: CraBrowser, WKNavigationDelegate, WKUIDelegate, WKDow
         MainActor.assumeIsolated { evaluate(params, in: WKContentWorld.world(name: world), completion: completion) }
     }
 
+    override func evaluate(inIsolatedWorld world: String, params: String, ifCurrent: @escaping () -> Bool,
+                           completion: @escaping (String?, String?) -> Void) {
+        MainActor.assumeIsolated {
+            guard ifCurrent() else { reply(completion, nil, "retired evaluation"); return }
+            evaluate(params, in: WKContentWorld.world(name: world), ifCurrent: ifCurrent, completion: completion)
+        }
+    }
+
     override func sendDevToolsMethod(_ method: String, params: String, completion: @escaping (String?, String?) -> Void) {
         MainActor.assumeIsolated {
             guard let web = webView, !closed else { return reply(completion, nil, "\(method): the page is closed") }
@@ -849,6 +875,24 @@ final class WebKitBrowser: CraBrowser, WKNavigationDelegate, WKUIDelegate, WKDow
                 }
                 web.go(to: item)
                 reply(completion, "{}", nil)
+            case "Cra.pauseMedia":
+                // Pause All Media (#438), answered as Chromium's engine does: WebKit pauses every
+                // player in the page, its frames included (pauseAllMediaPlayback, harmless on a quiet
+                // page). Not gated on requestMediaPlaybackState, which answered both ways wrongly for
+                // a hidden tab (not playing while its track played, playing once all was paused), so
+                // "paused" counts the top frame's players that played; sound from a frame counts on
+                // the app's side (MediaPause.outcome).
+                let count = """
+                (() => { let n = 0; const visit = r => { for (const e of r.querySelectorAll('*')) {
+                  if (e instanceof HTMLMediaElement && !e.paused && !e.ended) n++; if (e.shadowRoot) visit(e.shadowRoot); } };
+                  visit(document); return n; })()
+                """
+                web.evaluateJavaScript(count, in: nil, in: Self.world) { [weak self] r in
+                    let playing = (try? r.get()) as? Int ?? 0
+                    web.pauseAllMediaPlayback {
+                        self?.reply(completion, #"{"playing":\#(playing > 0),"session":false,"paused":\#(playing),"resisted":0}"#, nil)
+                    }
+                }
             case "Cra.setFreezingVote", "Cra.load":
                 // WebKit decides when a hidden page sleeps; tab sleeping closes the page instead.
                 reply(completion, "{}", nil)
@@ -890,13 +934,14 @@ final class WebKitBrowser: CraBrowser, WKNavigationDelegate, WKUIDelegate, WKDow
     /// Chromium does: {"result":{"type":…,"value":…}} or {"exceptionDetails":{…}}. Scripts run as a
     /// user gesture (WebKit's evaluateJavaScript always does), so play() and requestPictureInPicture work.
     @MainActor
-    private func evaluate(_ params: String, in world: WKContentWorld, completion: @escaping (String?, String?) -> Void) {
+    private func evaluate(_ params: String, in world: WKContentWorld, ifCurrent: (() -> Bool)? = nil, completion: @escaping (String?, String?) -> Void) {
         guard let web = webView, !closed else { return reply(completion, nil, "the page is closed") }
         let p = Self.object(params)
         guard let expression = p["expression"] as? String else { return reply(completion, nil, "no expression") }
         let done: (Result<Any, Error>) -> Void = { [weak self] r in
             MainActor.assumeIsolated { self?.reply(completion, Self.evaluationResult(r), nil) }
         }
+        guard ifCurrent?() != false else { return reply(completion, nil, "retired evaluation") }
         if p["awaitPromise"] as? Bool == true {
             web.callAsyncJavaScript("return await (\n\(expression)\n);", arguments: [:], in: nil, in: world, completionHandler: done)
         } else {
@@ -1073,12 +1118,8 @@ final class WebKitBrowser: CraBrowser, WKNavigationDelegate, WKUIDelegate, WKDow
                   completionHandler: @escaping @MainActor (URL?) -> Void) {
         // The profile's Download location, or a save panel when it asks for each file (#190).
         let profilePath = incognitoPage ? nil : profile
-        let asked = DownloadDestinations.location(profileID: DownloadDestinations.profileID(profilePath: profilePath)).askWhereToSave
-        DownloadDestinations.destination(profilePath: profilePath, suggestedName: suggestedFilename) { [weak self] dest in
+        DownloadDestinations.destination(profilePath: profilePath, suggestedName: suggestedFilename, replaceExisting: true) { [weak self] dest in
             guard let self, let dest else { return completionHandler(nil) }
-            // A save panel picks a taken name only after the user agreed to replace it, and
-            // WebKit won't write over a file. (Without a panel the name is a free one.)
-            if asked, FileManager.default.fileExists(atPath: dest.path) { try? FileManager.default.trashItem(at: dest, resultingItemURL: nil) }
             self.startDownload(download, response: response, to: dest, completionHandler: completionHandler)
         }
     }
