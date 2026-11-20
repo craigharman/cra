@@ -16,6 +16,7 @@ suite() {
 
 suite "CraCore" swift test --package-path Packages/CraCore
 suite "Shipped-issue tests" scripts/promises.py
+suite "Shipped-issue lock" python3 Tests/test_promises.py
 if [ "${1:-}" != core ]; then
   suite "Browser manager" Tests/test-browser-manager.sh
   suite "Ask on Page DOM" scripts/test-ask-on-page-content.sh
@@ -48,6 +49,7 @@ if [ "${1:-}" != core ]; then
   suite "Policies" scripts/test-policies.sh
   suite "WebKit stores" scripts/test-webkit-stores.sh
   suite "Update channels" scripts/test-update-channels.sh
+  suite "Feed counts kept on promote" scripts/test-feed-counts.sh
   suite "Command bar glyph" scripts/test-command-bar-glyph.sh
   suite "Folder glyph" scripts/test-folder-glyph.sh
   suite "Tidy title layout" scripts/test-tidy-title-layout.sh
@@ -64,6 +66,7 @@ if [ "${1:-}" != core ]; then
   suite "MCP transport" scripts/test-mcp-transport.sh
   suite "CEF download" python3 Tests/test_cef_download.py
   suite "CEF update check" python3 Tests/test_cef_update_check.py
+  suite "Sponsors" python3 Tests/test_sponsors.py
   suite "Lint" scripts/lint.py
 fi
 

@@ -598,7 +598,7 @@ final class SidebarTopBarView: NSView {
     // A double click on the empty strip does the title bar's double-click action; a drag moves
     // the window (from the floating sidebar too, without tearing its panel off).
     override var mouseDownCanMoveWindow: Bool { false }
-    private var press = WindowDragGesture()
+    private var press = WindowDragGesture(source: "sidebar top")
     override func mouseDown(with event: NSEvent) {
         if event.clickCount == 2, convert(event.locationInWindow, from: nil).y < CraMetrics.titleAreaHeight {
             _ = press.finish()
@@ -1055,7 +1055,7 @@ final class SpaceDockView: NSView {
         let selected = store.selectedTabID(window: ui.windowID)
         let url = selected.flatMap { store.item($0)?.tab?.url }.flatMap(URL.init(string:))
         let canBoost = ["http", "https"].contains(url?.scheme?.lowercased() ?? "") && url?.host != nil
-        let canSplit = selected.map { store.paneTabIDs(for: $0).count < 4 } ?? false
+        let canSplit = selected.map { store.paneTabIDs(for: $0).count < store.splitPaneLimit } ?? false
         let entries: [(String, String, String, Bool)] = [
             ("newSpace", "New Space", "plus.rectangle.on.rectangle", true),
             ("newFolder", "New Folder", "folder", true),

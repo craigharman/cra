@@ -35,7 +35,9 @@ built release app with a test profile. Note anything that fails in the release's
   swipes. With it off, a Dock restore and Stage Manager show no matte frame, and a ⌃←/⌃→
   full-screen round trip doesn't step.
 - **#46:** waking a slept tab in dark mode shows a black page area, not white.
-- **#6:** a new window's empty card has rounded corners.
+- **#6, #483:** a new window's empty card has rounded corners, is white over the space's colour
+  (stronger in light themes and faint in dark), casts the page card's soft shadow, and remains
+  below the find and status bars.
 - **#24:** edge to edge, there is no margin and the card is square, with the sidebar shown and
   hidden.
 - **#464:** with Settings ▸ Tabs ▸ Sidebar on the right, the sidebar and its traffic lights sit on the
@@ -49,6 +51,10 @@ built release app with a test profile. Note anything that fails in the release's
   collapsed.
 - **#31, #48:** the tab-list scroller shows a 4 pt knob 3 pt from the edge with "When
   scrolling", and a 5 pt knob with "Always".
+- **#544:** with "When scrolling", flick a long tab list up and down on the trackpad, touching down
+  again while it still glides: the knob stays up the whole time, without blinking at each touch, and a
+  two-finger swipe between spaces from a list at rest shows no knob. (`ListKnobGate` decides; no test
+  can post a trackpad gesture's phases.)
 - **#189:** colour swatches grow on hover and shrink when pressed; "Back to Pinned URL" slides
   in over 0.16 s.
 - **#88:** importing from Arc copies its Show Full URL setting.
@@ -58,8 +64,24 @@ built release app with a test profile. Note anything that fails in the release's
 - **#400 (macOS 27 only):** a white page with DevTools docked right and set to dark, toolbar shown,
   Edge to edge on and off: no white shows at any corner of the page or DevTools. This Mac runs
   macOS 26, where the test stands in for 27 with AppKit's own window radius; ask the reporter to confirm.
+- **#533 (macOS 27 only):** Cra alone on a second display playing a YouTube video with sound; click
+  another app on the first display: the video keeps playing in its tab. Cover Cra's window with
+  another app, or minimise it: the video goes to Picture in Picture. macOS 26 never called the window
+  not visible here, so WindowCoverageTests and `window-coverage-own-parts` stand in; ask the reporter.
+- **#550 (macOS 27 only):** in macOS full screen with the sidebar hidden, bring it out over a white
+  page and a pink one: its top rests 5 pt below the screen's edge and its shadow touches it all round,
+  with no strip of page colour above it. macOS 26 places the panels right without the fix, so
+  FloatingSidebarTests (AppKit's own constraint) and `floating-sidebar-shadow` stand in; ask the reporter.
 
 ### Sidebar, tabs and the command bar
+
+- **#483:** with no selected tab and the sidebar saved hidden, it comes straight out floating and
+  stays visible when the pointer leaves and when another app comes to the front. Its button switches
+  between docked and floating. Open a page: it remains while the pointer is over it, then slides away
+  when the pointer leaves. Switch to an empty space and it comes straight back.
+- **#483, docking:** dock the sidebar from floating over both the empty card and a real page. It grows
+  into place, its corners square and its shadow fades without the page jumping. Undocking in the empty
+  window still snaps to floating; smoothing that direction is a follow-up.
 
 - **PR #268, ⌘T:** next to Arc on a themed space and on a default one: the selected row is the
   space's colour (gold on a gold space), white text and a white arrow tile; the info badge takes the
@@ -134,6 +156,10 @@ built release app with a test profile. Note anything that fails in the release's
 - **#429:** two windows on pages with a text field. Press ⌘L in the first, then click the second's
   field without closing the bar, and type and paste. The text lands in the second window, never the
   first. Do the same from a Little Window's bar.
+- **#551:** ⌘T, type part of an address, ⌘Tab to another app and back. The bar is still open with
+  what was typed and takes typing at once; while the other app was in front it stayed behind that
+  app's windows. Leave again and come back by clicking the page: the bar closes. Same with ⌘L in a
+  Little Window.
 - **Row press:** next to Arc, hold the button on a pinned tab, a Today tab, a split, New Tab and a
   Favorites tile. Each pushes in slightly about its centre (a tile a little more) and springs back
   on release; a drag doesn't leave it pushed in, a double-click on a tab dips once, folders don't move.
@@ -171,8 +197,8 @@ built release app with a test profile. Note anything that fails in the release's
 - **#28:** the speaker sits between favicon and title, a click mutes, and it doesn't blink
   between tracks.
 - **#47:** ⌘T highlights the New Tab row; the list scrolls only enough to show the active row.
-- **#85:** ⌘Return keeps the bar open; the "New Tab Created" toast shows only while the sidebar
-  is hidden.
+- **#85, #543:** ⌘Return keeps the bar open; the "New Tab Created" toast shows only while the sidebar
+  is hidden, for a ⌘-clicked, middle-clicked or Open Link in New Tab link too.
 - **#92:** in a Little Window, ⌃⌘2 sends the page to the window already on space 2.
 - **#174:** with a page text field focused, ⌘Space switches input source and ⌘` switches
   windows.
@@ -204,6 +230,10 @@ built release app with a test profile. Note anything that fails in the release's
   move down past the bar and it goes. ⌘L opens the address with the bar away, and ✕, Expand and Add to Split beside
   the card still work. (`peek-toolbar-auto-hide` checks the layout, the strip and the keep zone through
   `cra://debug`; the real pointer's events over the card are this line.)
+- **#520:** open Gmail in a Peek (Shift-click a mail.google.com link, signed in) and press Escape: Close turns
+  into the red Confirm pill, and a second Escape closes the Peek. A quick double Escape closes it at once. Then a
+  plain site (github.com) in a Peek: one Escape closes it. (`peek-escape-closes` and `peek-escape-page-uses-it`
+  stand in for Gmail with a page that cancels Escape; Gmail's own key handling, which can change, is this line.)
 - **#381:** click a link to another site in a favorite, next to Arc doing the same: the peeked page's
   favicon springs onto the tile's top right corner on a white square (black in a dark space), 4 pt
   past the corner, with a soft shadow, and springs off when the Peek closes. Check a split favorite
@@ -273,10 +303,19 @@ built release app with a test profile. Note anything that fails in the release's
   the menu bar and into the Dock, and keep pushing before you lift. The window stops with the hidden
   pointer still on it, then flies into a corner on the lift, and the pointer shows again there.
   The CraCore test covers where it stops; only real fingers show that the lift still reaches it.
+- **#534:** on a trackpad, pinch the PiP open and closed, with Cra in front and with another app in
+  front: it follows the fingers smoothly in the video's shape, stops where an edge drag does at its
+  smallest and at the screen's edges, a window in a corner grows out of it, and a two-finger swipe
+  still throws it. Next to Arc's, check where it grows from. The scenario drives the pinch code;
+  only real fingers show that the magnify events reach the window.
 - **#246:** a YouTube video's PiP shows no Chrome strip (site icon, host, dark top band) at any
   point, also in the first seconds; with the pointer away it is the bare video. On hover: Back to
   Tab on the left (with its words from 400 pt wide), the host centred and whole, Close on the
   right, one even dim layer.
+- **#460:** a YouTube PiP opened from the player's button and by leaving the tab: hover it, click
+  it, press keys while it is in front, swipe it, switch apps and Spaces. Only Arc's controls ever
+  show, never Chrome's (Back to Tab, ±10 s, progress bar, captions) under them. If they do, cra.log
+  has a "pip: Chromium's window got event type N, dropped" or "became key" line saying how.
 - **#262:** hover a YouTube PiP after a drag on its edges, a resize, a trip to another app's
   full-screen Space and back, and a click on Cra's window: only Cra's controls show (no grey ±10,
   no second ✕, no scrubber). Play/pause alone in a window under 280 pt wide, with the ±15 pair
@@ -336,6 +375,11 @@ built release app with a test profile. Note anything that fails in the release's
   `secure dns: secure via dns.google` and chrome://settings/security shows the same choice.
 - **#190:** with Ask Where to Save Each File on, the save panel is a sheet on Cra's window, and
   Cancel cancels the download.
+- **#574:** what a page shows over itself needs a real site or macOS's own prompts, so the
+  scenarios (`page-dialogs`, `page-dialog-sign-in`, …) can't reach these: on meet.google.com,
+  Present now shows Chrome's picker over the page (after macOS's Screen Recording prompt the first
+  time), and Cancel ends it; on webauthn.io, Register shows Chrome's passkey dialog over the page,
+  then Touch ID; a site that asks for a client certificate shows the certificate picker over the page.
 - **#272:** download a large file. The bin over the Library button keeps a ring that fills as it
   downloads; right-clicking its row in the tray and on Library ▸ Downloads offers Pause Download and
   Cancel Download, and a paused row reads "Paused". ⌘Q while it runs asks "Downloads in progress";
@@ -356,6 +400,10 @@ built release app with a test profile. Note anything that fails in the release's
   allstate.com show their pages. They stayed white while a blocked request was cancelled instead of
   failed: Adobe Target hides the page until its request ends. (The scenario checks the failure and
   that the blocked host is never asked; this needs the real sites.)
+- **Install count:** within an hour of the release going live, Phantom's "Cra installs" site
+  (phantom.kildahl.dk) shows check-ins from the new version under Version, and from Intel too under
+  Chip once Intel Macs have updated. None means released copies aren't checking in (docs/sharing.md,
+  "Install count"); the `install-checkin` scenario only proves a test copy does.
 
 ### Sync
 
@@ -364,6 +412,17 @@ built release app with a test profile. Note anything that fails in the release's
   shows "Synced" on both and never asks which sidebar to keep after the first answer. Needs
   real iCloud: the harness only stands in for a file that is still downloading.
 - **PR #289:** the same with a folder in Dropbox, OneDrive or a similar service instead of iCloud.
+
+### iPhone
+
+- **#504:** on a TestFlight build with the default-browser entitlement, Settings ▸ Set Cra as
+  Default Browser opens Cra's page in iOS Settings with a "Default Browser App" row; picking Cra
+  there makes a link tapped in Messages open in Cra. Settings ▸ Apps ▸ Default Apps ▸ Browser App
+  lists Cra too. Needs a real iPhone and Apple's signing: the policy test only sees the file.
+
+- **#536:** on a TestFlight build, sign in to a site with a passkey saved in iCloud Keychain and
+  one saved in 1Password (webauthn.io works for both): iOS's passkey sheet comes up and the sign-in
+  completes. The simulator only reaches the sheet (it has no Face ID enrolled or passkeys saved).
 
 ## Not pinned yet
 

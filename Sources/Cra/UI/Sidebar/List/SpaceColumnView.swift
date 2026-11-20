@@ -41,6 +41,15 @@ final class SpaceColumnView: NSView {
 
     override var isFlipped: Bool { true }
 
+    // A press between the favorites, the header and the list (or in the favorites' gaps, which pass
+    // it on) moves the window once it moves 3 pt, as the list's empty space does (#547).
+    override var mouseDownCanMoveWindow: Bool { false }
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+    private var press = WindowDragGesture(source: "sidebar column")
+    override func mouseDown(with event: NSEvent) { press.begin(event) }
+    override func mouseDragged(with event: NSEvent) { press.drag(event) }
+    override func mouseUp(with event: NSEvent) { _ = press.finish() }
+
     private func relayout(animated: Bool) {
         guard animated, window != nil else { needsLayout = true; return }
         NSAnimationContext.runAnimationGroup { ctx in
@@ -1381,6 +1390,8 @@ final class FavoriteTileView: NSView, ArcTooltipTarget, NSDraggingSource {
         // Its Previews card comes as for the pointer (#376).
         if let url = previewURL, let store = grid?.store { FavoritePreviewCard.shared.hover(self, target: previewTarget(url, store: store)) }
     }
+    /// Scenarios (cra://debug?pointerOn=…&tile=1): whether the tile has the pointer (#527).
+    var debugHovering: Bool { hovering }
     /// Scenarios (cra://debug?favoriteBadges=): the Peek badge's frame in the tile, nil without one (#381).
     var peekBadgeReadout: String? {
         guard let b = peekBadge else { return nil }
@@ -1608,14 +1619,24 @@ final class FavoriteTileView: NSView, ArcTooltipTarget, NSDraggingSource {
         ArcTooltipController.shared.mouseMoved(in: self)
     }
 
-    override func mouseEntered(with event: NSEvent) {
+    override func mouseEntered(with event: NSEvent) { pointerAt(event) }
+    override func mouseMoved(with event: NSEvent) { pointerAt(event) }
+
+    /// The tracking area covers the visible rect, which for another space's tile on the strip lies
+    /// beside the sidebar, under the page: a pointer there is not on the tile (#527).
+    private func pointerAt(_ event: NSEvent) {
+        guard shows(event) else {
+            if hovering { mouseExited(with: event) }
+            return
+        }
+        let entering = !hovering
         hovering = true
         trackPointer(event)
-        if let url = previewURL, let store = grid?.store {
+        if entering, let url = previewURL, let store = grid?.store {
             FavoritePreviewCard.shared.hover(self, target: previewTarget(url, store: store))
         }
     }
-    override func mouseMoved(with event: NSEvent) { trackPointer(event) }
+
     override func mouseExited(with event: NSEvent) {
         hovering = false
         hoveredCell = nil

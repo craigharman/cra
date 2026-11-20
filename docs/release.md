@@ -62,7 +62,8 @@ git tag v0.1.0
 git push origin v0.1.0
 # 2. While it runs (Apple's notary queue is the slow part): record the clips and write the
 #    release's entry in the website's src/content/releases.ts.
-# 3. Once the release is live: push the website, set the GitHub notes, close the issues.
+# 3. Once the release is live: push the website, set the GitHub notes, close the issues, and check
+#    that check-ins from it reach Phantom's "Cra installs" site (release-checklist.md, "Install count").
 ```
 
 Clips come after the tag, not before: the build and Apple's check run while they're recorded. The
@@ -92,8 +93,9 @@ password can be revoked and an Apple ID locked, which stopped 0.1.47's rerun wit
 ### Sponsors in the release notes
 
 Before writing the notes, run `scripts/sponsors.py`. It reads the GitHub Sponsors tiers and
-lists who the tiers promise a name in these notes (one-time $50 and up since the last tag,
-monthly $5 and up once a year), which Backers to ask first about the next big feature, and
+lists who the tiers promise a name in these notes (one-time sponsors since the last tag,
+monthly sponsors as often as their tier says: $3 once when they join, $5 once a year, $15 twice a year, $30 every
+quarter, $60 every release, and again after a sponsor raises their monthly amount), and
 which companies need their logo on /support. Private sponsors are counted, never named. It
 needs the VictorKildahl `gh` login with the `user` scope.
 
@@ -338,14 +340,21 @@ default `updateChannel`, CraCore `UpdateChannel`); a Mac starts on New. Stable i
   ships Sparkle 2.10, which skips such an item below that build, so a Cra on CEF updates only to Stable, and 0.1.44
   and 0.1.45, which have no channel switch, still update to the newest.
 - **Promote** with `scripts/promote.sh <version>` (`--dry-run` first): it rewrites both feeds on the latest release
-  from the two releases' own appcasts and sets `scripts/stable-version`, which you commit. The site's download links
+  from the two releases' own appcasts, sets `scripts/stable-version` and commits it with `scripts/feed-counts.tsv`
+  (those two files only); push main before the next release, which reads it. The site's download links
   and the Homebrew tap still follow the latest release.
+- **Feed counts.** Each download of a feed is one update check, which is how daily users are estimated. Uploading over
+  a feed starts its GitHub download count over, so `scripts/promote.sh` first appends the latest release's feed counts
+  to `scripts/feed-counts.tsv` (`scripts/feed-counts.sh <tag>`), committed with `stable-version`. The promotions of
+  17 Nov (onto 0.1.45) and 18 Nov (onto 0.1.49) ran before this and lost theirs.
 - **Going back.** Sparkle never installs an older version: a Mac switched to Stable stays where it is until Stable
   passes it, and Settings offers Stable's disk image (`Cra.dmg` beside its `Cra.zip`) to install it now. An engine
   profile opens on Cra 0.1.43 (CEF) with its cookies and tab history (Migration scenarios run in reverse, 17 Nov).
   An update a Mac already downloaded from New still installs when it quits.
 - **Tests.** `scripts/test-update-channels.sh` (in `scripts/test.sh`) serves the fixture feeds and asks the vendored
-  Sparkle what each build is offered; scenario `update-channel-stable` covers Settings.
+  Sparkle what each build is offered; scenario `update-channel-stable` covers Settings. `scripts/test-feed-counts.sh` runs
+  `promote.sh` with a stand-in `gh` in a git copy and checks the counts are kept before the upload and
+  committed with `stable-version`, and nothing else.
 
 ## The Chromium engine
 

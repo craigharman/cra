@@ -55,6 +55,10 @@ enum TestRoot { case today }
         var shareThemeWithWebsites = true
         var blockCookieBanners = false
         var littleWindowOnOptionCommandClick = false
+        /// Settings ▸ Links ▸ a middle click in a split adds a pane (#498), off by default.
+        var splitMiddleClickAddsPane = false
+        /// Settings ▸ Links ▸ "Open background tabs below the current tab" (#532), off by default.
+        var backgroundTabsBelowCurrent = false
         /// Settings ▸ Tabs ▸ "Always keep these sites active" (#458), by host; AppSettings matches subdomains.
         var keepActiveHosts: Set<String> = []
         func keepsActive(url: String) -> Bool { keepActiveHosts.contains(URL(string: url)?.host ?? "") }
@@ -82,7 +86,20 @@ enum TestRoot { case today }
         if split.children.contains(tabID) { return tabID }
         return split.children.first { items[$0]?.tab?.activeTabBeforeCreationID == tabID }
     }
+    /// A split's panes, as SidebarStore reads them (#498): the tab alone when it isn't in one.
+    func paneTabIDs(for tabID: UUID) -> [UUID] { splitContaining(tabID)?.children ?? [tabID] }
+    var splitPaneLimit: Int { 4 }
+    /// The panes a middle click in a split added (#498), in order.
+    var linkPanes: [String] = []
+    func openLinkInSplit(_ url: String, from tabID: UUID, window: UUID? = nil) -> TestItem? {
+        guard paneTabIDs(for: tabID).count < splitPaneLimit else { return nil }
+        linkPanes.append(url)
+        return createTab(url: url)
+    }
     func rootContainer(of: UUID) -> TestRoot? { nil }
+    /// The slot below a link's source tab (#532); CraCore's LinkTabPlacementTests pin where it is.
+    struct LinkSlot { let parent: UUID; let index: Int }
+    func linkTabSlot(below source: UUID, afterEarlierLinks: Bool) -> LinkSlot? { nil }
     func updateTab(_ id: UUID, url: String? = nil, title: String? = nil) {
         if let url { items[id]?.tab?.url = url }
         if let title { items[id]?.tab?.savedTitle = title }

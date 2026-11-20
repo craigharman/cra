@@ -108,6 +108,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         if startOnNewTab { store.selectTab(nil, window: store.activeWindowID) }
         // Before any page is made: an easel's tab opens its canvas.
         EaselBrowser.register()
+        CaptureOverlay.easels = { EaselFiles.all().map { CaptureMenuLayout.Destination(id: $0.id, title: $0.title) } }
         EaselBrowser.registerServices(self)
         // Arc's Boosts: each page on a boosted site gets its boosts; an edit shows at once.
         BrowserManager.boostFor = { [store] url in
@@ -174,6 +175,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             return true
         }
         PageWindowStart.install()
+        PageHostWindows.install()
         CraCEFRuntime.setStrayPageHandler { [weak self] url, profile in
             Task { @MainActor in
                 guard let self, !dropsStartUpPage(url) else { return }
@@ -259,11 +261,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     }
 
     /// Third-party ad and tracker blocking (Settings > Privacy, Dia's onboarding
-    /// checkbox). The bundled list (resources/blocklist) is parsed off the main thread;
-    /// the switch follows the setting live, no restart.
+    /// checkbox). The bundled list (resources/blocklist) and the lists added in Settings (#507)
+    /// are read off the main thread; the switch and the lists follow the settings live, no restart.
     private func startContentBlocking() {
-        if let path = Bundle.main.path(forResource: "domains", ofType: "txt", inDirectory: "blocklist") {
-            CraCEFRuntime.loadBlockedDomains(fromFile: path, completion: nil)
+        observeChanges(of: { [store] in store.settings.customBlocklists }) { [composition] in
+            BlockLists.shared.set(addresses: $0, clock: composition.clock)
         }
         observeContentBlocking()
         observeHttpsOnly()
@@ -837,19 +839,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             if let url { store.createTab(url: url, select: true, window: hidden.windowID) }
             return hidden
         }
-        var frame: String?
-        if let current = main?.window, current.isVisible, !current.styleMask.contains(.fullScreen) {
-            var f = current.frame.offsetBy(dx: 22, dy: -22)
-            if let screen = (current.screen ?? NSScreen.main)?.visibleFrame, !screen.contains(f) {
-                f.origin = NSPoint(x: screen.minX + 22, y: screen.maxY - f.height - 22)
-            }
-            frame = NSStringFromRect(f)
-        }
+        // From a window in full screen, the new one goes full screen on a Space of its own (#528).
+        let current = main.flatMap { m in m.window.flatMap { $0.isVisible ? (m, $0) : nil } }
+        let placement = NewWindowPlacement.of(
+            source: current?.1.frame,
+            sourceFullScreen: current.map { $0.1.styleMask.contains(.fullScreen) && store.window($0.0.windowID).fullScreen } ?? false,
+            screen: (current?.1.screen ?? NSScreen.main)?.visibleFrame, defaultSize: MainWindowController.defaultSize)
+        let frame = placement.frame.map(NSStringFromRect)
         let session = incognito ? store.addIncognitoWindow(frame: frame)
             : blank ? store.addBlankWindow(frame: frame)
             : store.addWindow(spaceID: store.focusedSpaceID(window: store.lastNormalWindowID), frame: frame)
+        if placement.opensFullScreen { store.updateWindow(session.id) { $0.fullScreen = true } }
         let c = showNewWindow(session)
-        if let url { store.createTab(url: url, select: true, window: c.windowID) } else { c.openCommandBar(.newTab) }
+        if let url { store.createTab(url: url, select: true, window: c.windowID) }
+        if placement.opensFullScreen {
+            // The bar comes up once the window is on its own Space, not on the one it left.
+            c.enterSavedFullScreen(then: url == nil ? { [weak c] in c?.openCommandBar(.newTab) } : nil)
+        } else if url == nil {
+            c.openCommandBar(.newTab)
+        }
         return c
     }
 
@@ -1135,6 +1143,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             if let js = dict["devtoolsjs"] { main.debugRunInDevTools(js) }
             if dict["embedDump"] != nil { NSLog("%@", main.embeddedPagesDump()); return }
             if dict["pageInsets"] != nil { CraLog.note(main.pageInsetsReadout()); return }
+            if dict["windowCoverage"] != nil { CraLog.note(main.windowCoverageReadout()); return }
+            if let mode = dict["coverWindow"] { main.debugCoverWindow(mode); return }
             // pageDrawn=<label>: whether the front tab's page is in its card and draws there. Its frames
             // come in Chromium's CALayerHost under the page's view; a page Chrome attached to its own
             // never-shown window drew there instead, and the tab stayed blank (GitHub #469).
@@ -1173,6 +1183,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                 if button != "1" { CraLog.note(ChromiumDialogs.press(button)) }
                 return
             }
+            // pageDialogs=<label>[&target=little][&fill=<a,b>][&press=<button>]: the windows Chromium shows for pages
+            // (dialogs, bubbles, popups), where they sit against the page and what they say (PageDialogs).
+            if let label = dict["pageDialogs"] {
+                let little = dict["target"] == "little" ? littleWindows.last : nil
+                let browser = little?.browser ?? main.currentBrowser
+                CraLog.note(PageDialogs.readout(label, page: browser?.containerView, window: little?.window ?? main.window,
+                                                press: dict["press"], fill: dict["fill"].map { $0.components(separatedBy: ",") }))
+                return
+            }
             if let label = dict["switcherWindows"] {
                 CraLog.note(SwitcherWindows.readout(label, main: main.window, little: littleWindows.compactMap(\.window))); return
             }
@@ -1180,7 +1199,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                 CraLog.note(WindowManagers.readout(label, main: main.window, little: littleWindows.compactMap(\.window))); return
             }
             if let g = dict["screenshotPick"]?.split(separator: ",").compactMap({ Double($0) }), g.count == 2 {
-                CraLog.note(main.screenshotPickReadout(at: CGPoint(x: g[0], y: g[1]))); return
+                let little = dict["target"] == "little"
+                let window = little ? littleWindows.last?.window : main.window
+                CraLog.note(ScreenshotPick.readout(of: window, named: little ? "little window" : "main window", at: CGPoint(x: g[0], y: g[1]))); return
             }
             // Tests that leave the pointer alone: scroll=dy,steps,x,y scrolls the scroll view at a
             // point of the main window (from its top left); swipe=dx,steps plays a space swipe.
@@ -1196,14 +1217,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                 return
             }
             // hitAt=x,y: the view a press there lands on, as the window's hit test finds it, and its superviews
-            // (the toolbar's ← over where the hidden traffic lights were, #449).
+            // (the toolbar's ← over where the hidden traffic lights were, #449). move=1: each says whether
+            // a press on it may move the window (mouseDownCanMoveWindow, "+" or "-", #547).
             if let g = dict["hitAt"]?.split(separator: ",").compactMap({ Double($0) }), g.count == 2, let w = main.window,
                let root = w.contentView?.superview {
                 var chain: [String] = []
                 var v = root.hitTest(root.superview?.convert(NSPoint(x: g[0], y: w.frame.height - g[1]), from: nil)
                     ?? NSPoint(x: g[0], y: w.frame.height - g[1]))
-                while let c = v, chain.count < 12 { chain.append(String(describing: type(of: c))); v = c.superview }
+                while let c = v, chain.count < 12 {
+                    chain.append(String(describing: type(of: c)) + (dict["move"] == "1" ? (c.mouseDownCanMoveWindow ? "+" : "-") : ""))
+                    v = c.superview
+                }
                 CraLog.note("hit at \(Int(g[0])),\(Int(g[1])): \(chain.isEmpty ? "nothing" : chain.joined(separator: " < "))")
+                return
+            }
+            // dragAt=x,y&by=dx,dy: a press there moved by dx,dy (down is +) and released, through the event
+            // queue as clickAt's click (#547); target=floating as for clickAt.
+            if let g = dict["dragAt"]?.split(separator: ",").compactMap({ Double($0) }), g.count == 2,
+               let d = dict["by"]?.split(separator: ",").compactMap({ Double($0) }), d.count == 2,
+               let w = dict["target"] == "floating" ? main.floatingSidebar?.panelWindow : main.window {
+                TestGesture.drag(from: NSPoint(x: g[0], y: w.frame.height - g[1]), by: NSPoint(x: d[0], y: -d[1]), in: w)
                 return
             }
             // clickAt=x,y: a click there through the event queue, as the pointer's would go (#195);
@@ -1392,6 +1425,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             if let g = dict["capturePick"]?.split(separator: ",").compactMap({ Double($0) }), g.count == 2 {
                 main.debugCapturePick(at: NSPoint(x: g[0], y: g[1]), deeper: dict["deeper"] == "1"); return
             }
+            // captureMenu=<typed>&run=<row>: the capture menu beside a capture of the page, <typed> in its
+            // field; cra.log lists its rows, then the row titled <row> is chosen.
+            if let typed = dict["captureMenu"] { main.debugCaptureMenu(typed: typed == "-" ? "" : typed, run: dict["run"]); return }
+            // easels=list: the easels Library ▸ Easels and the capture menu list, the latest edited first;
+            // easels=open: what the open easel shows and what its file holds; easels=tiles: how many
+            // tiles Library ▸ Easels shows.
+            if let what = dict["easels"] {
+                if what == "tiles" {
+                    // The tiles Library ▸ Easels shows now.
+                    func count(in view: NSView) -> Int {
+                        (view is EaselTile && !view.isHiddenOrHasHiddenAncestor ? 1 : 0) + view.subviews.reduce(0) { $0 + count(in: $1) }
+                    }
+                    CraLog.note("easel tiles: \(main.window?.contentView.map(count(in:)) ?? 0)")
+                } else if what == "open", let canvas = (main.currentBrowser as? EaselBrowser)?.canvasView {
+                    let id = canvas.document.id
+                    CraLog.note("easel open: shown=\(canvas.document.items.count) saved=\(EaselFiles.load(id).items.count) title=\(canvas.document.title)")
+                } else {
+                    let all = EaselFiles.all()
+                    CraLog.note("easels listed: \(all.count) titles=\(all.map(\.title).joined(separator: "|"))")
+                }
+                return
+            }
             // captureToEasel=1: the page's screenshot, then the capture menu's New Easel.
             if let how = dict["captureToEasel"] { main.debugCaptureToEasel(send: how == "send"); return }
             // easelLive=<s>: the open easel's first capture shows the live website; <s> seconds later
@@ -1407,6 +1462,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             if let n = dict["easelPick"].flatMap(Int.init), let canvas = (main.currentBrowser as? EaselBrowser)?.canvasView {
                 canvas.debugPick(n); return
             }
+            // easelTool=<key>&hover=<tool>: a tool's key pressed on the open easel and the pointer over a
+            // toolbar button; cra.log says which tool is picked and which letters show.
+            if let key = dict["easelTool"], let canvas = (main.currentBrowser as? EaselBrowser)?.canvasView {
+                canvas.debugTool(key: key, hover: dict["hover"]); return
+            }
+            // easelTileHover=1|0: the pointer over Library ▸ Easels' first tile, or gone; cra.log says
+            // how large it is drawn and how bright its backing is.
+            if let on = dict["easelTileHover"] {
+                func first(in view: NSView) -> EaselTile? {
+                    if let tile = view as? EaselTile, !tile.isHiddenOrHasHiddenAncestor { return tile }
+                    for sub in view.subviews { if let found = first(in: sub) { return found } }
+                    return nil
+                }
+                guard let tile = main.window?.contentView.flatMap(first(in:)) else { CraLog.note("easel tile: none"); return }
+                tile.debugHover(on == "1") { CraLog.note("easel tile: \($0)") }
+                return
+            }
             // easelLink=<url>: the open easel gets a link card for <url>, as a paste does; cra.log says what it read.
             if let url = dict["easelLink"], let canvas = (main.currentBrowser as? EaselBrowser)?.canvasView {
                 canvas.debugLink(url); return
@@ -1419,6 +1491,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             if let history = dict["mcpHistory"] { MCPServer.shared.allowsHistory = history == "on"; return }
             // mcpStop=1: the latest pill's Stop (that agent disconnects, MCP stays on).
             if dict["mcpStop"] != nil { MCPServer.shared.stopLatestPill(); return }
+            // mcpWatched=on|off: a shown tab counts as watched even while its window is covered.
+            if let watched = dict["mcpWatched"] { MainWindowController.agentTabsWatchedUnseen = watched == "on"; return }
             // translatePrompts=never:<host>|block:<lang>|reset|state[&profile=<name>][&label=<label>]: Settings ▸
             // Advanced ▸ Reset Translated-site Prompts and the translate choices it forgets, in every profile.
             if let t = dict["translatePrompts"] {
@@ -1475,6 +1549,54 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                 case let cell as SpaceCellView: (cell.superview as? SpaceDockView)?.debugHover(cell)
                 default: CraLog.note("hover: no visible \(spec)")
                 }
+                return
+            }
+            // pointerOn=<text>&label=<l>: the pointer brought to the middle of the first sidebar tab row (or,
+            // with tile=1, favorite tile) whose title has that text, in any space, as AppKit brings it: entered
+            // and moved for every sidebar tracking area whose rect holds it, wherever the row is. Logs whether
+            // that spot is in the window, what the row's list (or the tile) hovered, and whether the tip
+            // controller counts the pointer as on it (tip=1). A row or tile of a space beside the shown one
+            // lies under the page; it took the hover and showed its tip there by the pointer (#527).
+            if let title = dict["pointerOn"], let window = main.window {
+                let label = dict["label"] ?? title
+                func all(_ v: NSView) -> [NSView] { [v] + v.subviews.flatMap(all) }
+                let host = main.shell.sidebarHost
+                let found: (any ArcTooltipTarget & NSView)? = dict["tile"] == "1"
+                    ? all(host).compactMap { $0 as? FavoriteTileView }.first { $0.text.contains(title) }
+                    : all(host).compactMap { $0 as? TabRowView }.first { $0.text.contains(title) }
+                guard let row = found else {
+                    CraLog.note("pointer on \(label): no \(dict["tile"] == "1" ? "tile" : "row") \(title)")
+                    return
+                }
+                let p = row.convert(NSPoint(x: row.bounds.midX, y: row.bounds.midY), to: nil)
+                let inWindow = window.contentView.map { $0.bounds.contains($0.convert(p, from: nil)) } ?? false
+                let time = ProcessInfo.processInfo.systemUptime
+                for view in all(host) {
+                    for area in view.trackingAreas {
+                        let rect = area.options.contains(.inVisibleRect) ? view.visibleRect : area.rect
+                        guard view.convert(rect, to: nil).contains(p), let owner = area.owner as? NSResponder else { continue }
+                        if area.options.contains(.mouseEnteredAndExited),
+                           let e = NSEvent.enterExitEvent(with: .mouseEntered, location: p, modifierFlags: [], timestamp: time,
+                                                          windowNumber: window.windowNumber, context: nil, eventNumber: 0,
+                                                          trackingNumber: 0, userData: nil) {
+                            owner.mouseEntered(with: e)
+                        }
+                        if area.options.contains(.mouseMoved),
+                           let e = NSEvent.mouseEvent(with: .mouseMoved, location: p, modifierFlags: [], timestamp: time,
+                                                      windowNumber: window.windowNumber, context: nil, eventNumber: 0,
+                                                      clickCount: 0, pressure: 0) {
+                            owner.mouseMoved(with: e)
+                        }
+                    }
+                }
+                let hovered: String
+                switch row {
+                case let r as TabRowView: hovered = r.list?.debugHoveredTitle ?? "none"
+                case let t as FavoriteTileView: hovered = t.debugHovering ? t.text : "none"
+                default: hovered = "none"
+                }
+                let tip = ArcTooltipController.pointerArea(of: row).contains(window.convertPoint(toScreen: p))
+                CraLog.note("pointer on \(label): in window=\(inWindow ? 1 : 0) hovered=\(hovered) tip=\(tip ? 1 : 0)")
                 return
             }
             // musicNotes=<label>: report visible note overlays and their offsets from tile centers.
@@ -1681,8 +1803,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                 return
             }
             // windowState=<label>: each window's full screen, Space, traffic lights (#277), whether a
-            // drag can move it (#308), where the page card sits in it (#315), whether it floats (Stay On
-            // Top) and has a sheet open (#333), and which side its sidebar is on (#464). Lights are "hidden", or
+            // drag can move it (#308), where the page card sits in it (#315) and the loading bar over it (#548), whether
+            // it floats (Stay On Top) and has a sheet open (#333), and which side its sidebar is on (#464). Lights are "hidden", or
             // their alpha; "-" when a window has none.
             if let label = dict["windowState"] {
                 func lights(_ w: NSWindow) -> String {
@@ -1707,8 +1829,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                         + "lightsHidden=\(flag((w as? CraWindow)?.trafficLightsHidden ?? false)) lights=\(lights(w)) "
                         + "movable=\(flag(w.isMovable)) backgroundMovable=\(flag(w.isMovableByWindowBackground)) "
                         + "lightsIn=\(lightsPlace(w)) card=\(m.shell.cardReadout) sidebar=\(m.shell.sidebarReadout) "
-                        + "floating=\(m.floatingSidebar?.edgeReadout ?? "-") "
-                        + "onTop=\(flag(m.staysOnTop)) sheet=\(flag(w.attachedSheet != nil)) frameAdjust=\(CraWindow.frameAdjustment)")
+                        + "floating=\(m.floatingSidebar?.edgeReadout ?? "-") shadow=\(m.floatingSidebar?.shadowReadout ?? "-") "
+                        + "onTop=\(flag(m.staysOnTop)) sheet=\(flag(w.attachedSheet != nil)) \(m.shell.loadingReadout) frameAdjust=\(CraWindow.frameAdjustment)")
                 }
                 for (i, l) in littleWindows.enumerated() where !l.isPeek {
                     guard let w = l.window else { continue }
@@ -1789,7 +1911,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                     [(NSEvent.ModifierFlags.control, "⌃"), (.option, "⌥"), (.shift, "⇧"), (.command, "⌘")]
                         .filter { m.keyEquivalentModifierMask.contains($0.0) }.map(\.1).joined()
                 } ?? ""
-                CraLog.note("sidebar shown \(label): visible=\(main.sidebarVisible ? 1 : 0) menu=\(item?.title ?? "-") key=\(mods)\(item?.keyEquivalent ?? "-")")
+                // presentation: docked, hidden or heldOpen (SidebarPresentation, #483).
+                CraLog.note("sidebar shown \(label): visible=\(main.sidebarVisible ? 1 : 0) menu=\(item?.title ?? "-") key=\(mods)\(item?.keyEquivalent ?? "-") presentation=\(main.sidebarPresentation.mode)")
                 return
             }
             // menuRows=<menu>[&label=<label>]: a menu bar menu's rows as it draws them once validated
@@ -1879,15 +2002,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             // the video, as the last of n quick clicks (2: a double click, back to the tab); pipSeek=<0…1>
             // presses the scrubber that far along; pipSize=<0…1> resizes it to that share of its
             // display's width; pipButton=back|minimize|close clicks that hover button (#434); pipShow=1
-            // shows the hover controls and keeps them up until the pointer comes and goes (#463).
+            // shows the hover controls and keeps them up until the pointer comes and goes (#463);
+            // pipPointer=readd|enter|move puts Chromium's tracking area back or sends its window the pointer (#535);
+            // pipPinch=<m>,<m>… pinches it, one trackpad magnification per value (#534).
             if let label = dict["pip"] { NSLog("Cra pip %@: %@", label, PictureInPictureChrome.shared.readout()); return }
             if let count = dict["pipClick"].flatMap(Int.init) { PictureInPictureChrome.shared.debugClick(count); return }
             if let at = dict["pipSeek"].flatMap(Double.init) { PictureInPictureChrome.shared.debugSeek(at); return }
             if let name = dict["pipButton"] { PictureInPictureChrome.shared.debugPress(name); return }
             if dict["pipShow"] != nil { PictureInPictureChrome.shared.debugShow(); return }
+            if let what = dict["pipPointer"] { PictureInPictureChrome.shared.debugPointer(what); return }
             if let how = dict["pipKey"] { PictureInPictureChrome.shared.debugTakeKey(how); return }
+            if let what = dict["pipPoke"] { PictureInPictureChrome.shared.debugPoke(what); return }
             if let edge = dict["pipDrop"] { PictureInPictureChrome.shared.debugDrop(edge); return }
             if let share = dict["pipSize"].flatMap(Double.init) { PictureInPictureChrome.shared.debugSize(CGFloat(share)); return }
+            if let steps = dict["pipPinch"] { PictureInPictureChrome.shared.debugPinch(steps.split(separator: ",").compactMap { Double($0) }.map { CGFloat($0) }); return }
             // peekShown=<label>: the page behind a Peek in each window, faded and drawn back or whole (PR #221).
             if let label = dict["peekShown"] {
                 for m in mainWindows { NSLog("Cra peek shown %@: %@", label, m.peekBackdropShown()) }
@@ -1980,6 +2108,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                 CraLog.note("back \(label): selected=\(main.selectedTab?.tab?.url ?? "-") back=\(main.sidebarUI.canGoBack ? 1 : 0) today=\(today)")
                 return
             }
+            // todayOrder=<label>: the front space's Today top to bottom, each tab by address, a split's panes in
+            // brackets (where a link's tab lands, #532).
+            if let label = dict["todayOrder"] {
+                func row(_ id: UUID) -> String {
+                    guard let it = store.item(id) else { return "?" }
+                    if it.isSplit { return "[" + it.children.map(row).joined(separator: " + ") + "]" }
+                    if it.isFolder { return it.displayTitle + "{" + it.children.map(row).joined(separator: " , ") + "}" }
+                    return it.tab?.url ?? "?"
+                }
+                let today = store.item(store.focusedSpace(window: main.windowID).todayContainerID)?.children ?? []
+                CraLog.note("today order \(label): \(today.map(row).joined(separator: " | "))")
+                return
+            }
             // swipeBack=<label>[&go=1]: what Chromium's two-finger swipe asks the front page's view
             // before a swipe back starts, and with go=1 what it does at the end (#370).
             if let label = dict["swipeBack"] {
@@ -2014,6 +2155,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             if dict["relaunch"] != nil { relaunch(); return }
             // quit=1 quits for real, as the menu bar item's Quit; quit=menu is ⌘Q (#231).
             if let q = dict["quit"] { q == "menu" ? NSApp.terminate(nil) : quitFromMenuBar(); return }
+            // emptyCard=<label>: the front window's card while no tab is selected, its veil and shadow (#483).
+            if let label = dict["emptyCard"] {
+                CraLog.note("empty card \(label): \(main.shell.emptyCardReadout)")
+                return
+            }
             // selectedTab=<label>: the front window's open tab, by address (⌘1…⌘9 scenarios).
             if let label = dict["selectedTab"] {
                 CraLog.note("selected tab \(label): \(store.selectedTabID(window: main.windowID).flatMap { store.item($0)?.tab?.url } ?? "none")")
@@ -2098,10 +2244,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             // a background test copy is in either state depending on what it was sent.
             if let v = dict["appActive"] { main.sidebarUI.appActive = v == "1"; return }
             // Settings ▸ Privacy sharing now, not in 30 s or tomorrow (only with CRA_SHARING_ENDPOINT
-            // in a test copy): stats sends the usage report, crash looks for new crash reports,
-            // on and off tick and untick onboarding's "Help improve Cra" row.
+            // in a test copy): stats sends the usage report, checkin the daily install check-in,
+            // crash looks for new crash reports, on and off tick and untick onboarding's
+            // "Help improve Cra" row.
             if let v = dict["sharing"] {
                 if v == "stats" { SharingService.shared.sendStatsIfDue(force: true) }
+                if v == "checkin" { SharingService.shared.sendCheckInIfDue(force: true) }
                 if v == "crash" { SharingService.shared.checkCrashReports() }
                 if v == "on" { store.settings.setSharesToImproveCra(true) }
                 if v == "card-share" { SharingCard.answer(share: true) }
@@ -2111,6 +2259,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             }
             // Settings ▸ Privacy ▸ Fingerprinting protection on or off, as its switch sets it.
             if let v = dict["fingerprinting"] { store.settings.fingerprintingProtection = v == "on"; return }
+            // Settings ▸ Privacy without the pointer (#507): blockLists=<address,…>|none sets the added
+            // block lists, blockAds=on|off the switch they sit under.
+            if let v = dict["blockLists"] { store.settings.customBlocklists = v == "none" ? [] : v.split(separator: ",").map(String.init); return }
+            if let v = dict["blockAds"] {
+                store.settings.blockAdsAndTrackers = v == "on"
+                CraLog.note("block ads and trackers: \(v == "on" ? "on" : "off")")
+                return
+            }
             if let v = dict["banner"] { SoftwareUpdater.shared.debugUpdated(v == "none" ? nil : v); return }
             if let v = dict["bannerReady"] { SoftwareUpdater.shared.debugReady(v == "none" ? nil : v); return }
             if let mode = dict["switcher"] { main.debugTabSwitcher(allSpaces: mode == "all"); return }
@@ -2146,8 +2302,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             }
             if dict["themeEditor"] != nil { main.showSpaceStyleEditor(space: store.focusedSpace); return }
             if dict["jumpPill"] != nil { SpaceListView.jumpToSelected(for: main.sidebarUI, space: store.focusedSpaceID); return }
+            // The open folder preview: the pointer resting on a row, the list scrolled under it, and
+            // "Cra folderPreview <label>: lit=<rows> top=<pt>", the rows with the pointer's highlight and how far
+            // the list is scrolled (#544).
+            if let n = dict["folderPreviewPointer"].flatMap(Int.init) { FolderPreviewController.shared.preview?.debugPointer(onRow: n); return }
+            if let n = dict["folderPreviewScroll"].flatMap(Int.init) { FolderPreviewController.shared.preview?.debugScroll(rows: n); return }
+            if let label = dict["folderPreviewLit"] {
+                guard let preview = FolderPreviewController.shared.preview else { NSLog("Cra folderPreview %@: closed", label); return }
+                NSLog("Cra folderPreview %@: lit=%@ top=%.0f", label, preview.debugLit.map(String.init).joined(separator: ","), preview.debugTop)
+                return
+            }
             if let f = dict["folderPreview"] {
-                if let id = UUID(uuidString: f) { SpaceListView.debugFolderPreview(id, ui: main.sidebarUI) } else { FolderPreviewController.shared.close() }
+                if let id = UUID(uuidString: f) { SpaceListView.debugFolderPreview(id, ui: main.sidebarUI) } else {
+                    FolderPreviewController.shared.preview?.debugPointer(onRow: -1)
+                    FolderPreviewController.shared.close()
+                }
                 return
             }
             if let t = dict["expandFolder"] {
@@ -2208,6 +2377,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                 return
             }
             // floatingSidebar=1 out, =0 away, =hold out and kept there whatever the pointer does (#424).
+            // =release lets the pointer decide again without sending it away; =state:<step> logs it (#531).
+            if let f = dict["floatingSidebar"], f.hasPrefix("state") { main.debugFloatingSidebarState(String(f.dropFirst(6))); return }
+            if dict["floatingSidebar"] == "release" { main.floatingSidebar?.heldOut = false; return }
+            // extensionPopup=<step>: whether an extension's popup is up and where it hangs (#531).
+            if let step = dict["extensionPopup"] { main.debugExtensionPopup(step); return }
             if let f = dict["floatingSidebar"] {
                 main.floatingSidebar?.heldOut = f == "hold"
                 if f == "1" || f == "hold" { main.floatingSidebar?.show() } else { main.floatingSidebar?.hide(animated: true) }
@@ -2255,6 +2429,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                 CraCEFRuntime.fetchPluginURL(url, headers: nil, profilePath: nil) { status, finalURL, _, body in
                     CraLog.note("plugin fetch status=\(status) body=\(body.isEmpty ? "empty" : "\(body.count) chars") url=\(finalURL)")
                 }
+                return
+            }
+            // glyphs=<View[,n]>: the sidebar glyph buttons in that view (as `snapshot` finds it), each as
+            // its symbol and tip: a live folder's key or warning (#521). press=1 then clicks the first.
+            if let spec = dict["glyphs"] {
+                var buttons: [SidebarGlyphButton] = []
+                func walk(_ v: NSView) {
+                    if let b = v as? SidebarGlyphButton, !b.isHidden { buttons.append(b) }
+                    v.subviews.forEach(walk)
+                }
+                if let view = ViewSnapshot.find(spec, in: main.window) { walk(view) }
+                CraLog.note("Cra glyphs \(spec): \(buttons.map(\.debugReadout).joined(separator: " | "))")
+                if dict["press"] == "1" { buttons.first?.action() }
                 return
             }
             // What the command bar would list for the text (rows, the Tab scope, the search), without opening it.

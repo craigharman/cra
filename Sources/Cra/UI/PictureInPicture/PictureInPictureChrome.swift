@@ -115,6 +115,40 @@ final class PictureInPictureChrome {
         if window.responds(to: NSSelectorFromString("setPreventKeyWindow:")) {
             window.setValue(true, forKey: "preventKeyWindow")
         }
+        // Chromium's view tracks the pointer over a floating window whatever is in front of it
+        // (an always-active tracking area, crbug.com/1214013), and `ignoresMouseEvents` doesn't
+        // take the area away. Its mouse-entered and -moved events fade Chrome's own controls in,
+        // and on hover they showed behind Arc's (#535, macOS 27.3; on macOS 26 AppKit passes the
+        // window the events but not that area). Without the area that view can't hear the
+        // pointer at all. Chromium only adds it again when the window's level changes or its view
+        // moves to another window; in between, the seal (#460) drops what still reaches the window.
+        for area in hoverTracking(window) { area.view.removeTrackingArea(area.area) }
+    }
+
+    /// Chromium's tracking areas in its PiP window that hear the pointer come, move and go.
+    private static func hoverTracking(_ window: NSWindow) -> [(view: NSView, area: NSTrackingArea)] {
+        guard let content = window.contentView else { return [] }
+        var found: [(view: NSView, area: NSTrackingArea)] = []
+        var views = [content]
+        while let view = views.popLast() {
+            views += view.subviews
+            found += view.trackingAreas.filter { PictureInPictureLayout.hearsPointer(trackingOptions: $0.options.rawValue) }.map { (view, $0) }
+        }
+        return found
+    }
+
+    /// Whether Chromium's view has the pointer over it by its own account (BaseView's `_mouseInside`,
+    /// which its mouse-entered and -moved handlers set): 1 or 0, -1 when Chromium has no such field.
+    private static func chromiumHearsPointer(_ window: NSWindow) -> Int {
+        guard let view = window.contentView else { return -1 }
+        var cls: AnyClass? = type(of: view)
+        while let c = cls {
+            if let ivar = class_getInstanceVariable(c, "_mouseInside") {
+                return Unmanaged.passUnretained(view).toOpaque().load(fromByteOffset: ivar_getOffset(ivar), as: UInt8.self) == 0 ? 0 : 1
+            }
+            cls = class_getSuperclass(c)
+        }
+        return -1
     }
 
     private static func preventsKey(_ window: NSWindow) -> Bool {
@@ -167,8 +201,37 @@ final class PictureInPictureChrome {
         let shown = overlays.values.compactMap { o in o.parent.map { (o, $0) } }
         guard !shown.isEmpty else { return "windows=0" }
         return "windows=\(shown.count) " + shown.map { o, w in
-            "key=\(w.isKeyWindow ? 1 : 0) appKey=\(NSApp.keyWindow === w ? 1 : 0) mouse=\(w.ignoresMouseEvents ? 0 : 1) preventKey=\(Self.preventsKey(w) ? 1 : 0) width=\(Int(w.frame.width)) share=\(Self.share(of: w)) \(o.controls.readout) frame=\(Int(w.frame.minX)),\(Int(w.frame.minY)),\(Int(w.frame.width)),\(Int(w.frame.height)) onScreen=\(PictureInPictureLayout.landing(afterDropping: w.frame, displays: NSScreen.screens.map(Self.display)) == nil ? 1 : 0)"
+            "key=\(w.isKeyWindow ? 1 : 0) appKey=\(NSApp.keyWindow === w ? 1 : 0) mouse=\(w.ignoresMouseEvents ? 0 : 1) preventKey=\(Self.preventsKey(w) ? 1 : 0) chrome=\(Self.chromeButtonsShown(in: w)) hover=\(Self.hoverTracking(w).count) heard=\(Self.chromiumHearsPointer(w)) width=\(Int(w.frame.width)) share=\(Self.share(of: w)) \(o.controls.readout) frame=\(Int(w.frame.minX)),\(Int(w.frame.minY)),\(Int(w.frame.width)),\(Int(w.frame.height)) onScreen=\(PictureInPictureLayout.landing(afterDropping: w.frame, displays: NSScreen.screens.map(Self.display)) == nil ? 1 : 0)"
         }.joined(separator: " | ")
+    }
+
+    /// How many of Chrome's own PiP buttons (Back to Tab, ±10 s, play/pause, close…) show in its
+    /// window: Chromium's accessibility tree leaves out the controls while they are hidden (#460).
+    static func chromeButtonsShown(in window: NSWindow) -> Int {
+        func count(_ element: Any, depth: Int) -> Int {
+            guard depth < 40, let node = element as? NSAccessibilityProtocol else { return 0 }
+            var n = node.accessibilityRole() == .button && !node.isAccessibilityHidden() ? 1 : 0
+            for child in node.accessibilityChildren() ?? [] { n += count(child, depth: depth + 1) }
+            return n
+        }
+        return window.contentView.map { count($0, depth: 0) } ?? 0
+    }
+
+    /// `cra://debug?pipPoke=key|focus`: Chromium's window handed what makes Chrome show its own
+    /// controls (VideoOverlayWindowViews: a key, or the window becoming key), the way a stray event
+    /// would reach it (#460).
+    func debugPoke(_ what: String) {
+        for o in overlays.values {
+            guard let w = o.parent else { continue }
+            if what == "focus" {
+                w.setValue(false, forKey: "preventKeyWindow")
+                w.makeKey()
+            } else if let e = NSEvent.keyEvent(with: .keyDown, location: NSPoint(x: w.frame.width / 2, y: w.frame.height / 2), modifierFlags: [],
+                                               timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: w.windowNumber, context: nil,
+                                               characters: "a", charactersIgnoringModifiers: "a", isARepeat: false, keyCode: 0) {
+                w.sendEvent(e)
+            }
+        }
     }
 
     /// `cra://debug?pipDrop=left|right|top|bottom`: the window moved half past that edge of the
@@ -211,6 +274,17 @@ final class PictureInPictureChrome {
         }
     }
 
+    /// `cra://debug?pipPinch=<m>[,<m>…]`: a trackpad pinch on the window, one magnification
+    /// event per value (0.1 is 10 % apart), between its touch-down and lift (#534).
+    func debugPinch(_ steps: [CGFloat]) {
+        for o in overlays.values {
+            guard let view = o.contentView as? PictureInPictureOverlayView else { continue }
+            view.beginPinch()
+            steps.forEach(view.pinched(by:))
+            view.endPinch()
+        }
+    }
+
     /// The window's width as a share of its display's visible width, two decimals.
     private static func share(of w: NSWindow) -> String {
         guard let visible = (w.screen ?? NSScreen.main)?.visibleFrame, visible.width > 0 else { return "-" }
@@ -220,6 +294,33 @@ final class PictureInPictureChrome {
     /// `cra://debug?pipButton=back|minimize|close`: that hover button clicked.
     func debugPress(_ name: String) {
         for o in overlays.values { o.controls.debugPress(name) }
+    }
+
+    /// `cra://debug?pipPointer=readd|enter|move`: what Chromium's own code and the window server can
+    /// do to its window (#535). `readd`: Chromium's view puts its tracking area back, as it does on a
+    /// level change; `enter`/`move`: the pointer comes onto the window's middle, as AppKit hands
+    /// those events to every window under it, to the view's tracking areas when it has any.
+    func debugPointer(_ what: String) {
+        for o in overlays.values {
+            guard let w = o.parent, let view = w.contentView else { continue }
+            if what == "readd" {
+                let update = NSSelectorFromString("updateCursorTrackingArea")
+                if view.responds(to: update) { view.perform(update) }
+                continue
+            }
+            let at = NSPoint(x: w.frame.width / 2, y: w.frame.height / 2)
+            let areas = Self.hoverTracking(w).map(\.area)
+            for area in areas.isEmpty ? [nil] : areas.map(Optional.some) {
+                let number = area.map { Int(bitPattern: Unmanaged.passUnretained($0).toOpaque()) } ?? 0
+                let event = what == "move"
+                    ? NSEvent.mouseEvent(with: .mouseMoved, location: at, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                                         windowNumber: w.windowNumber, context: nil, eventNumber: 0, clickCount: 0, pressure: 0)
+                    : NSEvent.enterExitEvent(with: .mouseEntered, location: at, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                                             windowNumber: w.windowNumber, context: nil, eventNumber: 0, trackingNumber: number,
+                                             userData: area.map { Unmanaged.passUnretained($0).toOpaque() })
+                if let event { NSApp.postEvent(event, atStart: false) }
+            }
+        }
     }
 
     /// `cra://debug?pipShow=1`: the hover controls shown as the pointer shows them, and kept up.
@@ -282,6 +383,9 @@ final class PictureInPictureChrome {
         window.hasShadow = true
         window.titleVisibility = .hidden
         Self.keepFromKey(window)
+        // Whatever still reaches it is dropped, and it never becomes key: either shows Chrome's own
+        // controls under Arc's (#460).
+        ChromiumPictureInPictureSeal.seal(window)
         // Over another app's full-screen Space too, like Arc's (#206). The overlay copies this below.
         CraCEFRuntime.floatOverFullScreenSpaces(window)
         if let cv = window.contentView {
@@ -627,7 +731,7 @@ final class PictureInPictureOverlayView: NSView {
         // Chromium cut it from the bottom right; it grows back there.
         let f = target.frame
         give(NSRect(x: f.minX, y: f.maxY - size.height, width: size.width, height: size.height), to: target)
-        if settling, gesture == nil, swipe == nil, flight == nil { dropped() }
+        if settling, gesture == nil, swipe == nil, pinch == nil, flight == nil { dropped() }
         return true
     }
 
@@ -653,6 +757,55 @@ final class PictureInPictureOverlayView: NSView {
     override func rightMouseDown(with event: NSEvent) {}
     override func otherMouseDown(with event: NSEvent) {}
 
+    // MARK: Pinch to resize (Arc, #534)
+
+    private var pinch: PictureInPicturePinch?
+
+    /// Two fingers pinching on the trackpad resize the window, as Arc's do: apart larger, together
+    /// smaller, in the video's shape, inside the limits of an edge resize
+    /// (`PictureInPicturePinch`). Not while a press or a swipe has the window.
+    override func magnify(with event: NSEvent) {
+        switch event.phase {
+        case .began, .mayBegin: beginPinch()
+        case .changed: pinched(by: event.magnification)
+        case .ended, .cancelled: endPinch()
+        default:
+            // A magnify without phases (none comes from a trackpad today) is one step.
+            beginPinch(); pinched(by: event.magnification); endPinch()
+        }
+    }
+
+    func beginPinch() {
+        guard gesture == nil, swipe == nil, let target else { return }
+        land()
+        pinch = PictureInPicturePinch(frame: target.frame)
+        pressedOn = nil
+    }
+
+    func pinched(by magnification: CGFloat) {
+        guard let target else { return }
+        if pinch == nil { beginPinch() }
+        guard var p = pinch else { return }
+        let screen = target.screen ?? NSScreen.main
+        let visible = screen?.visibleFrame ?? target.frame
+        let limits = PictureInPictureLayout.sizeLimits(aspect: p.startFrame.width / max(p.startFrame.height, 1),
+                                                       screen: screen?.frame ?? visible, visible: visible)
+        let minSize = NSSize(width: max(target.contentMinSize.width, limits.min.width), height: max(target.contentMinSize.height, limits.min.height))
+        let frame = p.magnify(by: magnification, minSize: minSize, maxSize: limits.max, visible: visible)
+        if p.scale != 1, pinch?.scale == 1 { CraLog.note("pip: pinch from \(Self.size(p.startFrame))") }
+        pinch = p
+        guard frame != target.frame else { return }
+        give(frame, to: target)
+    }
+
+    func endPinch() {
+        guard let p = pinch else { return }
+        pinch = nil
+        guard let target, p.scale != 1 else { return }
+        CraLog.note("pip: pinched \(Self.size(p.startFrame)) → \(Self.size(target.frame))")
+        PictureInPictureChrome.shared.remember(target.frame)
+    }
+
     // MARK: Swipe to a corner (Arc)
 
     private var swipe: PictureInPictureThrow?
@@ -672,7 +825,7 @@ final class PictureInPictureOverlayView: NSView {
     /// left out: the flight is the momentum. Scroll events only record where the fingers are;
     /// `tick` shows the window there, a frame at a time (see `PictureInPictureThrow.origin(at:)`).
     override func scrollWheel(with event: NSEvent) {
-        guard gesture == nil, let target, event.hasPreciseScrollingDeltas, event.momentumPhase.isEmpty else { return }
+        guard gesture == nil, pinch == nil, let target, event.hasPreciseScrollingDeltas, event.momentumPhase.isEmpty else { return }
         let t = event.timestamp
         switch event.phase {
         case .mayBegin, .began:

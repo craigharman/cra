@@ -665,6 +665,11 @@ final class SidebarStore {
         return tab
     }
 
+    /// Where a tab a link in `source` opens goes when it goes below `source` (`LinkTabPlacement`, #532).
+    func linkTabSlot(below source: UUID, afterEarlierLinks: Bool) -> LinkTabPlacement.Slot? {
+        LinkTabPlacement.belowSource(source, afterEarlierLinks: afterEarlierLinks) { self.items[$0] }
+    }
+
     /// What Back does on tab `id`, whose page `canGoBack` or not: a tab a link opened, with no
     /// page behind, closes to the tab it came from while that one is still in the sidebar (#273).
     /// `swipe`: a two-finger swipe back over the page asks (#370).
@@ -940,24 +945,36 @@ final class SidebarStore {
     }
 
     /// The tab switcher's list (⌃Tab): a space's most recently used tabs, newest first
-    /// (Arc shows five, the current tab first).
-    func recentTabs(in sid: UUID, limit: Int, window: UUID? = nil) -> [UUID] {
+    /// (Arc shows five, the current tab first), a split as one card (#554).
+    func recentCards(in sid: UUID, limit: Int, window: UUID? = nil) -> [RecentTabOrder.Card] {
         // A tab opened in the background since is newer than the current one, which still comes first.
-        Array(RecentTabOrder.ordered(recentEntries(in: sid), current: selectedTabID(in: sid, window: window)).prefix(limit))
+        Array(RecentTabOrder.cards(recentEntries(in: sid), current: selectedTabID(in: sid, window: window)).prefix(limit))
     }
 
     /// ⌃⌥Tab (#467, not in Arc): the recent tabs of every space the window can show, its own tab
     /// first. An incognito or Blank Window has only its own space.
-    func recentTabsInAllSpaces(limit: Int, window: UUID? = nil) -> [UUID] {
+    func recentCardsInAllSpaces(limit: Int, window: UUID? = nil) -> [RecentTabOrder.Card] {
         let w = self.window(window).id
         let focused = focusedSpaceID(window: w)
         let sids = isStandalone(window: w) ? [focused] : spaceOrder.filter { !isStandalone(space: $0) }
         let current = selectedTabID(in: focused, window: w)
-        return Array(RecentTabOrder.ordered(sids.flatMap(recentEntries(in:)), current: current).prefix(limit))
+        return Array(RecentTabOrder.cards(sids.flatMap(recentEntries(in:)), current: current).prefix(limit))
+    }
+
+    /// The tabs ⌃Tab's cards open, one per card.
+    func recentTabs(in sid: UUID, limit: Int, window: UUID? = nil) -> [UUID] {
+        recentCards(in: sid, limit: limit, window: window).map(\.opens)
+    }
+
+    func recentTabsInAllSpaces(limit: Int, window: UUID? = nil) -> [UUID] {
+        recentCardsInAllSpaces(limit: limit, window: window).map(\.opens)
     }
 
     private func recentEntries(in sid: UUID) -> [RecentTabOrder.Entry] {
-        visibleTabs(in: sid).map { RecentTabOrder.Entry(id: $0.id, lastActive: $0.tab?.timeLastActiveAt) }
+        visibleTabs(in: sid).map { t in
+            RecentTabOrder.Entry(id: t.id, lastActive: t.tab?.timeLastActiveAt,
+                                 split: t.parentID.flatMap { items[$0]?.isSplit == true ? $0 : nil })
+        }
     }
 
     // MARK: Tree moves
@@ -1109,6 +1126,10 @@ final class SidebarStore {
 
     /// The panes shown when `tabID` is selected: its split's children in pane
     /// order, or just the tab itself.
+    /// The most panes a split holds: Arc's four, or eight with Settings ▸ Links ▸ "More than four
+    /// panes in a split" on (GitHub #498, `SplitPaneLimit`).
+    var splitPaneLimit: Int { SplitPaneLimit.maximum(morePanes: settings.splitMorePanes) }
+
     func paneTabIDs(for tabID: UUID) -> [UUID] {
         if let split = splitContaining(tabID) { return split.children.filter { items[$0]?.isTab == true } }
         return [tabID]
@@ -1232,22 +1253,24 @@ final class SidebarStore {
 
     /// A page's "Open Link in Split View" (#257): the link opens in a new pane right after the
     /// page it was clicked in (`tabID`), in that tab's split or a new one, and is the open pane.
-    /// Nil when the split already has four panes, Arc's most (the window says "Cannot Add New Pane").
+    /// Nil when the split already has its most panes, Arc's four or Cra's eight (`splitPaneLimit`; the
+    /// window says "Cannot Add New Pane").
     @discardableResult
     func openLinkInSplit(_ url: String, from tabID: UUID, window: UUID? = nil) -> SidebarItem? {
-        guard items[tabID]?.isTab == true, paneTabIDs(for: tabID).count < 4 else { return nil }
+        guard items[tabID]?.isTab == true, paneTabIDs(for: tabID).count < splitPaneLimit else { return nil }
         return addEmptyPane(nextTo: tabID, url: url, window: window)
     }
 
     /// Add an existing tab as a pane of a split (Arc: onDropSidebarItem). A
     /// pinned or favorite tab stays where it is; a Today copy becomes the pane.
-    /// A split already holding Arc's four panes takes nothing (#498).
+    /// A split already holding its most panes takes nothing (#498): Arc's four, or eight with
+    /// "More than four panes in a split" on (`splitPaneLimit`).
     func addToSplit(_ splitID: UUID, tabID: UUID, at index: Int?) {
         guard var split = items[splitID], split.isSplit, var tab = items[tabID], tab.isTab, tab.parentID != splitID else {
             if let i = index, let sp = items[splitID], sp.children.firstIndex(of: tabID) != nil { moveWithinSplit(splitID, tabID: tabID, to: i) }
             return
         }
-        guard split.children.count < SplitDropProposal.maximumPanes else { return }
+        guard split.children.count < splitPaneLimit else { return }
         let previousAskProfiles = askProfileOwnership(of: [tabID])
         defer { notifyAskProfileChanges(previousAskProfiles) }
         let from = tab.parentID

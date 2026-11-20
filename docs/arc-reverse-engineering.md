@@ -226,7 +226,8 @@ Legend: [O] observed in shipped artifact or data file, [I] inference, [U] unknow
   as an 11pt second line (see "A pinned tab away from its page"), folders use a blue folder glyph, nested rows indent 16 pt (measured 3 Nov, #139). Bottom row: library icon
   left, tiny space emoji centered (inactive dimmed), + right.
 - [O] Content: rounded card inset ~8-10pt with the toolbar strip (42pt: lock + monospaced URL, copy link, extensions,
-  capture, DevTools, sidebar toggle) on top; no card at all when no tab is selected.
+  capture, DevTools, sidebar toggle) on top. With no tab selected, Arc 1.173.1 shows the empty card measured in
+  "Empty-window sidebar and card" below; the earlier capture was incorrectly read as having no card.
 - [O] Command bar: ~766pt wide, vertically centered, dark translucent in dark mode. Input row 60pt with the top match's
   favicon; rows 50pt single-line "Title — url"; the completion row comes first, then the typed query, then matches; open
   tabs show "Switch to Tab" + arrow box (other-space tabs show the space name); the selected row is tinted with the
@@ -270,7 +271,8 @@ Legend: [O] observed in shipped artifact or data file, [I] inference, [U] unknow
 - [O] Toolbar strip = first theme colour at 46% (#72601D), URL #E4E0D4 12pt monospaced starting 40pt from the card edge.
 - [O] Title row centre 24pt (traffic lights at x 19/43/67, sidebar toggle at 93, nav ← → ↻⌄ at 236/270/299/314).
   Favorites tiles 70×47 with 8pt gaps, first row at y≈45. Space header centre y≈118, rows 41pt pitch, favicon centre x=26,
-  text x=45. With no tab selected the content area is a faintly lighter card with a 40pt toolbar strip and a hairline.
+  text x=45. With no tab selected, use the measurements in "Empty-window sidebar and card" below; the earlier
+  capture was only described as a faintly lighter card.
 
 ## Calibration update, 24 Oct 2026 (afternoon)
 
@@ -2369,6 +2371,13 @@ strings "Opens the tab switcher, where you can cycle through recent tabs like Co
   a tab is created: tabs there carry it equal to `createdAt` to the microsecond. Cra stamps a tab opened with
   `select: false` when it opens and keeps the window's current tab first (`SidebarStore.recentTabs`), scenario
   `tab-switcher-background-tab`.
+- **A split is one card** ([O live] Arc 1.172, 18 Nov 2026, 2× capture of a Blank Window with Delta, Gamma and an
+  Alpha | Beta split; issue #554). The switcher lists sidebar items: StorableSidebar.json gives a split its own
+  `timeLastActiveAt`. The thumbnail's rectangle becomes a frame filled #161616 (selected or not), each pane's own
+  thumbnail inside it 4 pt from its edges and 4 pt apart, as wide as the pane's share (146 + 145 px for 50/50),
+  corners ≈ 4.5. The row under it has only each pane's favicon, centred under its pane: no titles. Cra:
+  `RecentTabOrder.cards`, `SwitcherSplitLayout`; a split pane's thumbnail is taken in its place's shape
+  (`BrowserManager.snapshotAspect`); scenario `tab-switcher-split`.
 - **Keys:** ⌃Tab opens on card 1 and moves on; ⇧Tab, ← and → move too. All of them wrap at both ends. Releasing ⌃
   switches, Esc cancels (the tab stays). A tap (⌃ up 0.13 s after Tab) switches with no panel; the panel appeared
   0.18–0.26 s after the key, so there is a short show delay.
@@ -2606,7 +2615,8 @@ GitHub issue #4: opening in window B a tab that window A shows left A with no ta
   when clicking on links with Shift held" (`shiftClickModalEntryPointEnabled`); "Exit the current context. Such
   as closing a Peek window"; "Undo prompt for re-opening a closed Peek". Not seen live (needs a real click).
 - Cra: a Little Window docked over the page area (6 %/5 % inset), a 25 % black shade over the browser window
-  that closes it on click, Escape the page didn't use closes it, "Open in <space>" makes it a tab. Same site =
+  that closes it on click, Escape the page didn't use closes it (one the page keeps asks first, #520), "Open in
+  <space>" makes it a tab. Same site =
   registrable domain (`SiteKey`). Verified on a test bundle with a CDP click in a favorite: Peek opened, the tab
   stayed, promote and ⌘W worked.
 
@@ -3249,6 +3259,17 @@ was frontmost, 1x region captures and 100 fps recordings; test tabs archived aft
   (JYSK space) it is dark with white text: 43/24/102 → 33/19/79, outline 26/15/62, i.e. the same hue at
   saturation 0.76, brightness 0.40 → 0.31 (outline 0.24); the light one is saturation 0.19 → 0.25, brightness
   0.89 → 0.85 (outline 0.61) in the theme's hue. Cra: ShinyToast.
+- [O static + live] Arc 1.173.1 (18 Nov 2026, issue #543): the toast isn't the command bar's own. A tab made in the
+  background posts `Arc_ShowBackgroundTabAffordance` ("Invalid NSNotification for showing BackgroundTabAffordance"),
+  which `BackgroundTabAffordanceController` (BackgroundTabAffordanceView.swift, `BackgroundTabNotificationContent`)
+  answers with `backgroundTabCreated` or `backgroundTabCreatedInSpace`; the strings' comments are "Letting the user
+  know a new tab has been created when the sidebar is hidden." and "Toast indicating that a tab was created in the
+  background in a specific Space." Live, in a Blank Window on a local page: with the sidebar out, ⌘Return on a
+  focused link opened a background row and no toast (twice); with it hidden, ⌘Return on the link, a ⌘-click and a
+  middle click each showed "New Tab Created" at the top right of the page (AX static text, window captures). No
+  setting turns it on with the sidebar out or off. [U] Open Link in New Tab from the page menu (not driven; same
+  notification) and the "in %@" variant (not reached). Cra: BackgroundTabToast (CraCore),
+  BrowserManagerDelegate.browserManagerOpenedInBackground, MainWindowController.toastBackgroundTab.
 - [O static] It is Arc's one toast (Toasts.ShinyToastView, `ToastContent`): the same component carries
   "Copied Current URL" (`copyTabURL`), "Cannot Add New Pane" (`maxNumberPanes`), "Screenshot Copied to Clipboard",
   "Pinned Tab to …", zoom changes, undo and more; some kinds add an SF Symbol (`quote.bubble.fill`,
@@ -3477,9 +3498,21 @@ that waits 3 s before answering and then serves a page whose image takes 5 s.
   until the new page commits, as Chromium treats it as a new navigation.
 - Cra: LoadingIndicator (CraCore) has the numbers and the phase rule. CraBrowser.hasCommittedLoad is NO from each
   main-frame navigation (OnBeforeBrowse, not redirects) until OnLoadStart. LoadingIndicatorView draws it with Core
-  Animation; a tab coming to the front shows its own state at once, without the widening or the finish. With no
-  margin (edge to edge, fullscreen) there is no bar; on light themes it is black at the same opacities. It slides
-  with the card when the sidebar hides or shows.
+  Animation; a tab coming to the front shows its own state at once, without the widening or the finish. On light
+  themes it is black at the same opacities. It slides with the card when the sidebar hides or shows.
+- [O] Where the card fills the screen (Arc 1.172.2, 18 Nov 2026, GitHub #548): live Arc, a Blank Window over AX,
+  a reload of a local page that answers after 3 s and holds an image for 5 s, 2x window captures at 1–7 s. The bar
+  is in the same rows in every layout, 6–13 px (3–7 pt) below the window's top edge, 256 px wide, centred over the
+  card: in a window with the sidebar shown or hidden and in full screen with the sidebar shown it is in the 10 pt
+  margin; in full screen with the sidebar hidden (card fills the screen) it lies over the card's top, on the
+  toolbar, white at the same opacities over Arc's dark blue bar. Arc keeps the toolbar while the sidebar is hidden
+  (View ▸ Hide Toolbar left it there), so its bar is never over the page itself.
+- Cra (#548): CraCore `LoadingIndicator.frame(window:card:)` keeps it in the top 10 pt of the window over the
+  card's middle whatever the card does, and hides it only for a page in element full screen (not measured in
+  Arc). Cra can hide or float the toolbar with the card filling the window (edge to edge, full screen), so the bar
+  can lie on the page: `LoadingIndicator.lightInk(on:)` takes the ink from what is under it (margin: the theme;
+  toolbar or page: dark ink over a colour above 0.6 luminance, the toolbar's own rule). `cra://debug?windowState`
+  reports `loading=x,y,WxH ink= shown= phase=`; the `loading-bar-edge-to-edge` and `loading-bar-full-screen` scenarios check it.
 
 ## A long wait for the first response (Arc 1.172.1, 8 Nov 2026, issue #256, offline copy)
 Offline Arc (fake home, network limited to localhost), a new tab opened over AppleScript (`make new tab with
@@ -3755,8 +3788,12 @@ event with `shiftClickModalEntryPointEnabled` set for the run, AX frames and 60 
   button is round again. Not seen live (a Peek needs Victor's Arc).
 - Cra (#425): PeekCloseHold (CraCore) has the rule, the timeouts and the pill's numbers; PeekControlButton draws the
   pill on its own layers (face ▸ clip ▸ glyphs and a CATextLayer) and PeekControlsPanel widens itself while it is up.
-  LittleWindowController.attemptPeekClose takes the Close button, ⌘W, Esc and the click catcher; Cra's Esc never asks,
-  so only a Peek using the camera or microphone (CraBrowser.isCapturingMedia) holds its first close.
+  LittleWindowController.attemptPeekClose takes the Close button, ⌘W, Esc and the click catcher; a Peek using the
+  camera or microphone (CraBrowser.isCapturingMedia) holds its first close.
+- Cra (#520): Cra's Esc asks only when the page kept it. Gmail cancels every Esc, so a Peek of it never closed.
+  PeekEscapePresses (CraCore): an Esc the page hasn't handed back after 0.5 s (Use Both's answer time) shows the
+  Esc pill, and while a pill is up the next Esc closes before the page sees it. Inferred: Arc's sender for
+  `prefersConfirmation: true` wasn't found, so whether Arc asks for this reason isn't known.
 - [O, 4 Nov] Which links peek, with both Links settings on (`modalEnabled` and
   `shiftClickModalEntryPointEnabled` set for the run, the sidebar reset before each run), HID clicks on a
   lab page at 127.0.0.1 in a pinned tab: a link to localhost peeked, plain or target=_blank; a link to
@@ -4332,7 +4369,8 @@ Read from the arm64 slice's Swift field metadata (`__swift5_fieldmd`, case and f
   #161C2F ring with no clearance, the capture menu 10 pt right of the ring, top level with it; its own place stays
   grey. On a 1688 × 963 pt page a 160 × 100 pt image's ring ran 623.5…791.5 pt, the 273 pt menu 801.5…1074.5.
 - Cra: Chromium 156 shows the same menu once cef-patches/context-menu-embedded-view.patch lets it show in Cra's
-  window. CraCEF's MakeArcMenu drops the QR code and video-frame search items, joins Translate to Save As…'s group,
+  window. CraCEF's MakeArcMenu drops the QR code and video-frame search items (the engine's BuildArcMenu also
+  Chrome's "Open in reading mode" and "Listen to this page", which Arc lacks, #563), joins Translate to Save As…'s group,
   puts Search first for a selection, turns Lens's "Search Image with Google" into "Search Google for Image", adds
   Open Link in Little Window and Capture Image… (ContentCapture.liftedLayout), and opens New Window / Incognito /
   Inspect in Cra's own windows and DevTools. Items Chromium has words for read in Chromium's language, as Arc's do
@@ -4966,3 +5004,19 @@ Every phrase and every number is in GitHub #407. Tags as above: [O] observed, [B
   when Google reloads its page under the script. The only data that leaves the Mac is the queries, to the search
   engine. Not measured: the row's exact spacing, the flower's size in Arc's row, what Arc does when a second run
   starts while the first works.
+
+## Empty-window sidebar and card (Arc 1.173.1, 17–18 Nov 2026, GitHub #483)
+
+Observed live in Arc 1.173.1 (90936), Chromium 157.0.8103.79, with window recordings and 2x captures.
+
+- [O] In a space with no selected tab and the sidebar hidden, Arc brings the sidebar straight to its floating
+  position and holds it there. Moving the pointer away or bringing another app to the front doesn't retract it.
+  The sidebar button still switches between docked and floating.
+- [O] Selecting or opening a tab ends the hold. The sidebar remains while the pointer is over it, then slides away
+  when the pointer leaves. Switching to a space with no selected tab brings it straight back and holds it open again.
+- [O] The empty window has a page-shaped white card in the normal content inset. Its colour fits white over the
+  space gradient at about 0.65–0.68 in a light theme and 0.10 in a dark theme.
+- [O] The card uses the page card's soft shadow: about 19–25 levels darker over 4–5 pt at the left edge, about 16
+  over 4 pt at the top, and about 35–42 over 6–8 pt below. The stronger lower edge matches the page card.
+- Cra (#483): `SidebarPresentation` derives the held-open state without storing another flag; `CardVeil` uses 0.65
+  light and 0.10 dark, and the empty card reuses the page card's shadow.

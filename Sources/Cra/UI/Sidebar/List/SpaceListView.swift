@@ -288,8 +288,7 @@ final class SpaceListView: NSView, NSDraggingSource {
                     editing: renaming == item.id, expanded: expanded, peeked: !peeked.isEmpty, live: item.isLiveFolder,
                     tint: NSColor(glyph.tint), fill: NSColor(glyph.fill), back: NSColor(glyph.back),
                     tabCount: expanded ? 0 : store.tabs(under: item.id).count,
-                    liveBusy: refreshing.contains(item.id), liveError: item.liveFolder.flatMap(LiveFolderText.warning)?.help,
-                    liveSignInURL: item.liveFolder.flatMap(LiveFolderText.warning)?.signInURL,
+                    liveBusy: refreshing.contains(item.id), liveWarning: item.liveFolder.flatMap(LiveFolderText.warning),
                     liveHelp: LiveFolderText.refreshHelp(item.liveFolder), liveIcon: item.liveFolder.flatMap { LiveFolderPluginStore.shared.entry(for: $0)?.icon },
                     symbol: item.folderSymbol))
                 out.append(row)
@@ -859,7 +858,7 @@ final class SpaceListView: NSView, NSDraggingSource {
     fileprivate func refreshHover() {
         guard let w = window else { return }
         let p = w.mouseLocationOutsideOfEventStream
-        let inside = document.visibleRect.contains(document.convert(p, from: nil)) && w.isVisible
+        let inside = document.shownRect.contains(document.convert(p, from: nil)) && w.isVisible
         hoverAt(inside && document.isMouseInside ? p : nil)
     }
 
@@ -869,13 +868,19 @@ final class SpaceListView: NSView, NSDraggingSource {
         hoverAt(row.convert(NSPoint(x: row.bounds.midX, y: row.bounds.midY), to: nil))
     }
 
+    /// Scenarios (cra://debug?pointerOn=): the title of the hovered tab row, or "none" (#527).
+    var debugHoveredTitle: String {
+        guard let h = hovered else { return "none" }
+        return (h as? TabRowView)?.text ?? "\(type(of: h))"
+    }
+
     private func hoverAt(_ windowPoint: NSPoint?) {
         var target: SidebarRowView?
         var local = NSPoint.zero
         // A swipe slides the strip under the pointer: no hover until it settles.
         if let wp = windowPoint, ui.spaceSwipe == 0, ui.libraryPage == nil {
             let p = document.convert(wp, from: nil)
-            if document.visibleRect.contains(p), let row = rows.first(where: { placed($0).contains(p) }), let v = views[row.key] {
+            if document.shownRect.contains(p), let row = rows.first(where: { placed($0).contains(p) }), let v = views[row.key] {
                 target = v
                 local = v.convert(wp, from: nil)
             }
@@ -1209,8 +1214,8 @@ final class SpaceListView: NSView, NSDraggingSource {
                 // target's place: on a pinned tab it is a pinned split (#180).
                 target = .split(with: rid, leading: p.x < r.frame.midX)
             } else if middle && isTab && item.isSplit {
-                // A split of Arc's four panes takes no fifth (#498).
-                target = item.children.count < SplitDropProposal.maximumPanes ? .into(rid) : nil
+                // A full split takes no more (#498): Arc's four, or eight with more panes on.
+                target = item.children.count < store.splitPaneLimit ? .into(rid) : nil
             } else if middle && !combines {
                 // Arc 1.173.1 takes nothing on a tab's middle (measured: no line, no tab, the tab kept its page).
                 target = nil
@@ -1371,10 +1376,10 @@ final class SpaceListDocument: NSView {
         addTrackingArea(NSTrackingArea(rect: .zero, options: options, owner: self, userInfo: nil))
     }
 
-    /// The pointer is on the list's visible part, and a click there would land in this window.
+    /// The pointer is on the list's shown part, and a click there would land in this window.
     private var pointerIsOver: Bool {
         guard let w = window, w.isVisible, !NSApp.isHidden,
-              visibleRect.contains(convert(w.mouseLocationOutsideOfEventStream, from: nil)) else { return false }
+              shownRect.contains(convert(w.mouseLocationOutsideOfEventStream, from: nil)) else { return false }
         return Self.topWindowNumber(at: NSEvent.mouseLocation) == w.windowNumber
     }
 
@@ -1390,8 +1395,20 @@ final class SpaceListDocument: NSView {
         return number
     }
 
-    override func mouseEntered(with event: NSEvent) { isMouseInside = true; list?.pointerMoved(event) }
-    override func mouseMoved(with event: NSEvent) { isMouseInside = true; list?.pointerMoved(event) }
+    override func mouseEntered(with event: NSEvent) { pointerAt(event) }
+    override func mouseMoved(with event: NSEvent) { pointerAt(event) }
+
+    /// The tracking area covers the visible rect, which for another space's list on the strip lies
+    /// beside the sidebar, under the page: a pointer there is not on the list (#527).
+    private func pointerAt(_ event: NSEvent) {
+        guard shows(event) else {
+            if isMouseInside { isMouseInside = false; list?.pointerMoved(nil) }
+            return
+        }
+        isMouseInside = true
+        list?.pointerMoved(event)
+    }
+
     override func mouseExited(with event: NSEvent) {
         // AppKit sends stray exits while the pointer rests on the list, as a row's buttons show
         // under it. The row lost its hover and hid its ✕ just as the pointer reached it (#196).
@@ -1410,12 +1427,20 @@ final class SpaceListDocument: NSView {
 
     /// A double click on empty list space opens the New Tab bar, as Arc's does
     /// (onDidDoubleClickSidebarBackground, command bar source sidebarEmptySpaceDoubleClick, #446).
-    /// Rows take their own clicks; a single press goes on to the sidebar, which moves the window.
+    /// A press there that moves 3 pt moves the window, as Arc's sidebar background does (#547), an
+    /// inactive window's too, as a title bar's press does. The press is this view's own, not AppKit's
+    /// background drag, which the floating sidebar's panel can't use (it would tear off the panel).
+    override var mouseDownCanMoveWindow: Bool { false }
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+    private var press = WindowDragGesture(source: "sidebar empty space")
     override func mouseDown(with event: NSEvent) {
-        guard event.clickCount == 2, let list else { return super.mouseDown(with: event) }
+        guard event.clickCount == 2, let list else { return press.begin(event) }
+        _ = press.finish()
         CraLog.note("sidebar empty space double-click: new tab")
         list.actions.openCommandBar(.newTab)
     }
+    override func mouseDragged(with event: NSEvent) { press.drag(event) }
+    override func mouseUp(with event: NSEvent) { _ = press.finish() }
 
     override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation { list?.dragUpdated(sender, entered: true) ?? [] }
     override func draggingUpdated(_ sender: NSDraggingInfo) -> NSDragOperation { list?.dragUpdated(sender, entered: false) ?? [] }
