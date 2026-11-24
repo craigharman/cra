@@ -314,6 +314,15 @@ def test_source(path):
     return src
 
 
+def tracked(*patterns):
+    """git ls-files, without symlinks: a link in upstream's tree must not make this read or
+    write a file outside it."""
+    import os
+    import subprocess
+    out = subprocess.run(['git', 'ls-files', *patterns], capture_output=True, text=True, check=True).stdout.split()
+    return [p for p in out if not os.path.islink(p) and not os.path.islink(os.path.dirname(p) or '.')]
+
+
 def main():
     import os
     import subprocess
@@ -321,8 +330,7 @@ def main():
     # The repository it's run in (CI runs a copy kept outside the checkout).
     os.chdir(subprocess.run(['git', 'rev-parse', '--show-toplevel'], capture_output=True, text=True,
                             check=True).stdout.strip())
-    files = subprocess.run(['git', 'ls-files', 'Sources/Cra/*.swift', 'Packages/CraCore/Sources/*.swift'],
-                           capture_output=True, text=True, check=True).stdout.split()
+    files = tracked('Sources/Cra/*.swift', 'Packages/CraCore/Sources/*.swift')
     STATE_TYPES[:] = observable_types(files)
     changed = []
     for path in files:
@@ -331,7 +339,7 @@ def main():
             changed.append(path)
             if not check:
                 open(path, 'w').write(new)
-    tests = subprocess.run(['git', 'ls-files', 'Tests/*.swift'], capture_output=True, text=True, check=True).stdout.split()
+    tests = tracked('Tests/*.swift')
     for path in tests:
         new = test_source(path)
         if new != open(path).read():
@@ -339,8 +347,7 @@ def main():
             if not check:
                 open(path, 'w').write(new)
     # After the sources: a harness's need for Perception depends on their rewritten imports.
-    scripts = subprocess.run(['git', 'ls-files', 'scripts/*.sh', 'Tests/*.sh'],
-                             capture_output=True, text=True, check=True).stdout.split()
+    scripts = tracked('scripts/*.sh', 'Tests/*.sh')
     for path in scripts:
         if path == 'scripts/perception-test-flags.sh':
             continue

@@ -25,6 +25,25 @@ def git(*args, check=True, **kw):
     return subprocess.run(['git', *args], capture_output=True, text=True, check=check, **kw)
 
 
+REGULAR = ('100644', '100755')
+
+
+def blob_mode(commit, path):
+    """The path's mode in `commit` (100644, 120000 for a symlink...), None when it isn't there."""
+    out = git('ls-tree', commit, '--', path).stdout.split()
+    return out[0] if out else None
+
+
+def read_regular(root, path):
+    """`root/path`'s text, or None unless it and every folder above it inside `root` are real (no symlinks)."""
+    parts = os.path.normpath(path).split(os.sep)
+    for i in range(1, len(parts) + 1):
+        if os.path.islink(os.path.join(root, *parts[:i])):
+            return None
+    full = os.path.join(root, path)
+    return open(full).read() if os.path.isfile(full) else None
+
+
 def perceptified_tree(commit, perceptify, into):
     """A worktree of `commit` with the Ventura rules applied (perceptify reads the whole tree)."""
     git('worktree', 'add', '--detach', '--quiet', into, commit)
@@ -49,17 +68,24 @@ def main():
         b = perceptified_tree(base, perceptify, os.path.join(tmp, 'base'))
         t = perceptified_tree(upstream, perceptify, os.path.join(tmp, 'theirs'))
         for path in conflicts:
-            ours = git('show', f'HEAD:{path}', check=False)
+            modes = [blob_mode(c, path) for c in ('HEAD', base, upstream)]
             bp, tp = os.path.join(b, path), os.path.join(t, path)
-            if ours.returncode != 0 or not os.path.exists(bp):
-                left.append(path)  # added or deleted on one side: a person decides
+            ours = git('show', f'HEAD:{path}', check=False).stdout
+            if modes[0] in REGULAR and modes[1] in REGULAR and modes[2] is None and not os.path.lexists(tp):
+                # Upstream deleted it: follow only if the fork never edited it by hand.
+                if read_regular(b, path) == ours:
+                    git('rm', '--quiet', path)
+                    print(f'resolved (deleted upstream): {path}')
+                else:
+                    left.append(path)
                 continue
-            if not os.path.exists(tp):
-                git('rm', '--quiet', path)  # upstream deleted a file the fork only perceptified
-                print(f'resolved (deleted upstream): {path}')
+            # Regular files on all three sides only: never a symlink, submodule or type change,
+            # whose content merge-file would read from wherever the link points.
+            if not all(m in REGULAR for m in modes) or None in (read_regular(b, path), read_regular(t, path)):
+                left.append(path)
                 continue
             with open(path, 'w') as f:
-                f.write(ours.stdout)
+                f.write(ours)
             r = subprocess.run(['git', 'merge-file', '-L', 'fork', '-L', 'base', '-L', 'upstream', path, bp, tp])
             if r.returncode == 0:
                 git('add', path)
