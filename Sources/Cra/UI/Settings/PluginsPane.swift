@@ -19,7 +19,7 @@ struct PluginsPane: View {
                     } trailing: { EmptyView() }
                 }
                 ForEach(Array(registry.packages.sorted { $0.manifest.name < $1.manifest.name }.enumerated()), id: \.element.manifest.id) { index, package in
-                        WithPerceptionTracking {
+                    WithPerceptionTracking {
                     if index > 0 { SettingsCardDivider() }
                     SettingsCardRow {
                         VStack(alignment: .leading, spacing: 2) {
@@ -36,9 +36,9 @@ struct PluginsPane: View {
                             )).labelsHidden().toggleStyle(.arcSwitch)
                         }
                     }
+                    }
                 }
             }
-                }
             HStack {
                 Button("Add Plugin…") { add() }
                 Spacer()
@@ -54,13 +54,13 @@ struct PluginsPane: View {
             SettingsFootnote("Create folders from the sidebar’s Live Folders menu. Disabling or removing a plugin keeps its existing folders and tabs.")
             if let error { SettingsFootnote(error).foregroundStyle(.red) }
             ForEach(Array(registry.failures.enumerated()), id: \.offset) { _, message in
-                    WithPerceptionTracking {
+                WithPerceptionTracking {
                 SettingsFootnote(message).foregroundStyle(.red)
+                }
             }
         }
-            }
         .disabled(registry.reloading || preparing)
-    }
+        }
     }
 
     private func add() {

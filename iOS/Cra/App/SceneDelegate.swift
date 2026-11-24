@@ -23,7 +23,7 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
             browser.loadViewIfNeeded()
             browser.open(url)
         }
-        if let item = connectionOptions.shortcutItem, let action = LaunchAction(shortcutType: item.type) {
+        if let action = (connectionOptions.shortcutItem?.type ?? LaunchOptions.value("CraShortcut")).flatMap(LaunchAction.init(shortcutType:)) {
             LaunchAction.pending = action
         }
     }
@@ -52,6 +52,7 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
     }
 
     func sceneDidEnterBackground(_ scene: UIScene) {
+        browser?.store.saveHistories()
         browser?.store.saveNow()
     }
 }
@@ -63,7 +64,8 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
 /// to summarize the first page once it has loaded, `-CraSyncDir <folder>` for the folder the Mac's
 /// sidebar syncs into (`demo` for a made-up sidebar with two Spaces), `-CraFakeVoice <text>` for
 /// what voice search hears instead of the microphone (`-CraShowVoice YES` holds the voice overlay
-/// up with it, for a screenshot), `-CraOnboarding YES` to show onboarding on a test's data folder.
+/// up with it, for a screenshot), `-CraOnboarding YES` to show onboarding on a test's data folder,
+/// `-CraCountHaptics YES` for the bar's buttons to count their ticks in their accessibility value (PressHaptics).
 enum LaunchOptions {
     /// The argument after `-<name>` on the command line, exactly as given. (UserDefaults would
     /// read it as a property list and drop quotes from it.)

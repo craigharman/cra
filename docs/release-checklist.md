@@ -24,7 +24,9 @@ built release app with a test profile. Note anything that fails in the release's
   back, several times, by the strip above the toolbar, by the toolbar's URL and by the sidebar's top next to the traffic lights:
   the window stays under the pointer the whole way, with no jump at the crossing and no flicker. AppKit's screen-layout adjustment
   ran mid-drag for a window a window controller owns (16 Nov 2026); `CraWindow` skips it for moves the window server reports. The
-  `window-frame-adjust` scenario only checks that answer is in place; a test copy never crosses a display.
+  `window-frame-adjust` scenario only checks that answer is in place; a test copy never crosses a display. After the drag, open a
+  `<select>` on a page: its menu opens on the control, not a display's width away (21 Nov 2026). The
+  `window-frame-after-move` scenario sends the window the server's report of such a move, not a real drag.
 
 - **#155:** a space on Auto, with one colour or two, changes look when macOS switches between
   light and dark. A space on Light or Dark doesn't.
@@ -61,6 +63,12 @@ built release app with a test profile. Note anything that fails in the release's
 - **PR #269:** in Settings, the selected source-list row is inset 10 pt from both sidebar edges
   (glyph 20 pt and label 49 pt from the edge, as in Dia 1.55.1), and scrolling Performance or Advanced
   never draws under the back/forward pill or the pane title.
+- **#701:** open an extension's popup from the toolbar (Element Remover or 1Password) on macOS 26 and 27: the page
+  sits inside the window's thin border on both sides and the bottom, and its bottom corners follow the window's
+  rounded ones (no square corner past the border). The scenario checks the geometry and the mask; the pixels need an eye.
+- **#701, Inspect:** right-click inside an extension's popup (Bitwarden, 1Password) and choose Inspect: Chromium's
+  DevTools window opens on the popup and the popup stays open while you click around DevTools; a click in a Cra
+  window then closes it. The harness covers the focus rule with a stand-in window; the real Inspect needs a hand.
 - **#400 (macOS 27 only):** a white page with DevTools docked right and set to dark, toolbar shown,
   Edge to edge on and off: no white shows at any corner of the page or DevTools. This Mac runs
   macOS 26, where the test stands in for 27 with AppKit's own window radius; ask the reporter to confirm.
@@ -175,6 +183,12 @@ built release app with a test profile. Note anything that fails in the release's
   holds: Console logs `Cra: mouse swipe back:`. In Split View the pane under the pointer goes back,
   not the focused one, and a tab a link opened closes back to its opener. A test can't make a swipe
   event, so only this check proves the swipe monitor.
+- **#714:** ⌥← / ⌥→ typed on the keyboard reach the page: on a YouTube video with chapters they skip to the
+  previous and next chapter, and the tab stays (Console: `Cra: mouse key back: left for the page, typed on the
+  keyboard`). Then the #233 check above with Logi Options+'s ⌥← / ⌥→ keystrokes: they must still go back and
+  forward, which proves Options+ posts them from its own process (an event from the keyboard has source process 0).
+  If Options+ types them as a keyboard does, they reach the page instead and #233's keystroke assignment needs
+  another tell.
 - **#260:** on a built-in trackpad, every space change by a two-finger swipe over the sidebar
   ticks once: a short flick, a slow drag past half (the tick comes at half), and a swipe into
   the Library and back out. A short drag that settles back is silent; a sideways wheel never
@@ -247,6 +261,13 @@ built release app with a test profile. Note anything that fails in the release's
   address and "Open in": each works on the first click. Capture and scroll: the page moves and
   the grey picture and the lens follow. With another app full screen, ⌥⌘N opens a Little
   Window over it, and doesn't when Settings ▸ Links ▸ "Open Little Window when I press ⌥⌘N in any app" is off.
+- **#585:** signed in to Netflix (it plays in WebKit, docs/protected-media.md), play a film and choose
+  View ▸ Picture in Picture: the film opens in the system's Picture in Picture window, and choosing it
+  again puts it back. Switch tabs while it plays: it opens by itself, and comes home when you go back; press the
+  window's ↖ instead and Cra switches to Netflix's tab, where the film plays on (the button is PIPAgent's, which a
+  scenario can't press); ✕ pauses it without switching. Netflix's
+  player makes its video with `disablePictureInPicture`; the `webkit-pip-opted-out` scenario covers such
+  a video on a fixture, this checks the real player and its FairPlay video.
 - **#357:** play an embedded YouTube video aloud on a blog (the player in an iframe), switch tabs:
   it goes into Picture in Picture. A background test copy can't hand the iframe its key press,
   before or after #357; the pip-leave-tab scenario covers a player in the page itself.
@@ -283,6 +304,18 @@ built release app with a test profile. Note anything that fails in the release's
 - **#298:** in a tab on a DRM service (it opens in WebKit, docs/protected-media.md), Option-click a
   link: it opens as a split pane beside the page, as it does in any other tab (that scenario's
   posted click never reaches a WebKit page behind other windows).
+- **Fandango at Home** (docs/protected-media.md; a mixed site whose player is a frame, which
+  widevine-in-a-frame.scenario and protected-video-prompt.scenario show on fixtures, not the site):
+  signed in to athome.fandango.com in Chromium, play a film you own. The toast offers Safari's
+  engine with Once and Always. Once: the play page opens in WebKit signed in and the film plays,
+  with no reloading. Back on the film's details page the tab is Chromium's again.
+- **Protected videos on YouTube** (docs/protected-media.md; it takes an account that owns a
+  film, which protected-video-prompt.scenario's fixture can't stand in for): signed in to YouTube
+  in Chromium, open a bought film. The toast offers Safari's engine with Once and Always. Once: the
+  page opens in WebKit signed in with only `youtube.com`'s cookies copied (cra.log: "copies N cookies
+  of youtube.com"; Google's stay in Chromium), the film goes on from where it was, and its quality menu offers
+  more than 480p. An ordinary video opened in that tab is Chromium's again, extensions and all.
+  The Chromium session is still signed in afterwards.
 - **#172:** with a space on its own profile, a Little Window from that space and a Peek from its
   tab see that profile's cookies. The chip names the profile; switching it reloads the page in
   the other profile.
@@ -306,8 +339,13 @@ built release app with a test profile. Note anything that fails in the release's
 - **#534:** on a trackpad, pinch the PiP open and closed, with Cra in front and with another app in
   front: it follows the fingers smoothly in the video's shape, stops where an edge drag does at its
   smallest and at the screen's edges, a window in a corner grows out of it, and a two-finger swipe
-  still throws it. Next to Arc's, check where it grows from. The scenario drives the pinch code;
-  only real fingers show that the magnify events reach the window.
+  still throws it. Next to Arc's, check where it grows from. **#573:** rest two fingers on the
+  trackpad first, then pinch: it resizes as well, with Cra in front and with another app in
+  front, and `pip: pinched` shows in cra.log. The overlay harness and the scenario hand AppKit the
+  events in an order a trackpad can send (scroll and magnify that may begin, the pinch, the
+  scroll's cancel at the lift) and the magnify through the app's event monitor; synthetic gestures
+  posted through the window server didn't reach a background app at all, so only real fingers show
+  that a trackpad's do.
 - **#246:** a YouTube video's PiP shows no Chrome strip (site icon, host, dark top band) at any
   point, also in the first seconds; with the pointer away it is the bare video. On hover: Back to
   Tab on the left (with its words from 400 pt wide), the host centred and whole, Close on the
@@ -353,7 +391,8 @@ built release app with a test profile. Note anything that fails in the release's
   and Refresh, Clear Cache and Refresh, View Source ⌥⌘U and Developer Tools ⌥⌘I. Tab row
   context menus show their shortcuts.
   A right-click or ⌃-click on the toolbar's ↻ shows the same menu, outside developer mode too
-  (#517); a plain click still reloads, and a split pane's ↻ has no menu.
+  (#517); a plain click still reloads. In a split, a right-click on the other pane's ↻ focuses that
+  pane and Clear Cookies and Refresh reloads that pane, not the one that had the focus.
 - **#265:** signed in to a paid Claude plan, Claude in Chrome's toolbar button opens its panel
   and Claude works in it: no "Claude isn't available on this page" and no "Can't reach Claude
   in Chrome". The scenario covers what the extension checks, but only an account gets past
@@ -380,6 +419,22 @@ built release app with a test profile. Note anything that fails in the release's
   Present now shows Chrome's picker over the page (after macOS's Screen Recording prompt the first
   time), and Cancel ends it; on webauthn.io, Register shows Chrome's passkey dialog over the page,
   then Touch ID; a site that asks for a client certificate shows the certificate picker over the page.
+- **Web features without a scenario** (docs/web-features.md: macOS's own prompts or a real site; each
+  line names its row in Tests/web-features.tsv):
+  - web feature: screen share picker. On meet.google.com, Present now ▸ A window shows the picker over
+    the page and shares the window picked; Stop sharing ends it.
+  - web feature: passkey with Touch ID. On webauthn.io, Register and then Authenticate each show the
+    passkey sheet over the page and take Touch ID.
+  - web feature: client certificate. On a site that asks for one (badssl.com's client certificate
+    page), the certificate picker shows over the page, and Cancel shows the site's error.
+  - web feature: Bluetooth chooser. On a Web Bluetooth demo (googlechrome.github.io/samples/web-bluetooth),
+    Scan asks macOS for Bluetooth the first time, then shows Chrome's chooser on Cra's window; Cancel
+    tells the page no device was picked.
+  - Keyboard lock: on a page that goes full screen and locks the keyboard (keyboard-lock.glitch.me, or Chrome
+    Remote Desktop's full screen), a press of Esc stays with the page, and holding Esc for two seconds leaves full
+    screen. (`page-fullscreen-keyboard-lock` presses it; a scenario can't hold a key.)
+  - web feature: SaveFrame. Open a PDF (any link to one) and press the viewer's Save button: the file
+    saves as a download (or into the save panel with Ask Where to Save Each File on) and shows in the bin.
 - **#272:** download a large file. The bin over the Library button keeps a ring that fills as it
   downloads; right-clicking its row in the tray and on Library ▸ Downloads offers Pause Download and
   Cancel Download, and a paused row reads "Paused". ⌘Q while it runs asks "Downloads in progress";
@@ -420,9 +475,36 @@ built release app with a test profile. Note anything that fails in the release's
   there makes a link tapped in Messages open in Cra. Settings ▸ Apps ▸ Default Apps ▸ Browser App
   lists Cra too. Needs a real iPhone and Apple's signing: the policy test only sees the file.
 
+- **#675:** on a TestFlight build on a real iPhone with System Haptics on, press and hold the New Tab pill, the
+  tab stack and the up arrow: a light tick as the finger comes down, a softer one as it lets go, and nothing with
+  System Haptics off. The simulator plays no haptics; `BarHapticsTests` only counts them.
+
 - **#536:** on a TestFlight build, sign in to a site with a passkey saved in iCloud Keychain and
   one saved in 1Password (webauthn.io works for both): iOS's passkey sheet comes up and the sign-in
   completes. The simulator only reaches the sheet (it has no Face ID enrolled or passkeys saved).
+
+- **#570:** with the default settings, open `https://ww7.readopm.com/read-manga/` and
+  `https://ww13.readonepiece.com/` and wait half a minute on each: no "Anna has sent (7) photos",
+  "The file is ready to download" or "Something Amazing Awaits!" overlay, tapping the page opens no
+  ad tab, and the page menu counts what was scrubbed. "Reload without ad blockers" brings the ads
+  back. Needs the real sites (their ad hosts change every few days) and a network that doesn't
+  filter them: the Mac this was built on resolves both to a DNS sinkhole. CraCore's FilterListTests
+  and the UI test `testAnAdLoaderFromAnUnlistedDomainIsStoppedByItsPath` pin the rules themselves.
+
+- **#570, added lists:** on a real iPhone, add `https://easylist.to/easylist/easylist.txt` under
+  Default Site Settings ▸ Block Lists. Its row says "N rules · M rules Cra can’t use" within a few
+  seconds of the fetch, the next page load has its rules (a news site loses its ad slots), and a
+  relaunch opens the first page without a wait (the compiled lists are looked up, not compiled
+  again). Needs a phone for WebKit's compile time and the real list: CraCore's
+  `AddedListRulesTests` compile a list of EasyList's shape on the Mac, and
+  `testAnAddedListsPathRuleStopsAScriptFromAnUnlistedDomain` pins a served list in the simulator.
+
+- **#623, the pull-up's motion:** on a real iPhone at 60 fps, record a drag up from the + pill let go
+  halfway and compare it frame by frame with the reporter's Arc Search recording
+  (streamable.com/vbu4dx): let go, the sheet stays put until the keyboard comes, then rises with it
+  and rests about 0.28 s after letting go, with no sink towards the bar and no overshoot. The
+  simulator records at a variable rate, so only a phone settles the timing; CraCore's
+  `aLetGoSheetWaitsForTheKeyboardWhereItWasLeft` pins the hold.
 
 ## Not pinned yet
 

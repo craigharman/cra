@@ -16,6 +16,10 @@ final class BottomBar: UIView {
 
     enum Mode { case page, tabs }
     var mode: Mode = .page { didSet { applyMode() } }
+    /// Over the empty home screen's dots: no slab, the buttons float as they do over the tab row.
+    var overBackdrop = false {
+        didSet { if overBackdrop != oldValue { applyMode() } }
+    }
     private let blur = UIVisualEffectView(effect: UIBlurEffect(style: .systemThinMaterial))
     private let hairline = UIView()
     /// The white ring Arc Search draws round the menu button while its blocker tip points at it.
@@ -66,9 +70,12 @@ final class BottomBar: UIView {
         spacesButton.alpha = tabs ? visible : 0
         settingsButton.alpha = tabs ? visible : 0
         // Over the switcher the bar has no slab of its own: the buttons float on the backdrop,
-        // tinted with its lavender (Arc Search: pill #dfddf2, circles #f0effd on #fcfafd).
-        blur.alpha = tabs ? 0 : visible
-        pill.backgroundColor = tabs ? Palette.switcherPillFill : Palette.barControlFill
+        // tinted with its lavender (Arc Search: pill #dfddf2, circles #f0effd on #fcfafd). The
+        // empty home screen's bar floats the same way.
+        let floats = tabs || overBackdrop
+        blur.alpha = floats ? 0 : visible
+        pill.backgroundColor = tabs ? Palette.switcherPillFill : overBackdrop ? Palette.homeButtonFill : Palette.barControlFill
+        menuButton.backgroundColor = overBackdrop ? Palette.homeButtonFill : Palette.barControlFill
         pill.setSymbol("plus", pointSize: tabs ? 20.5 : 16, weight: .semibold)
         pill.glyphTint = tabs ? Palette.switcherGlyph : Palette.glyph
         spacesButton.glyphTint = Palette.switcherGlyph
@@ -156,6 +163,7 @@ final class BarButton: UIControl {
 
     override var isHighlighted: Bool {
         didSet {
+            PressHaptics.play(for: self, from: oldValue, to: isHighlighted)
             UIView.animate(withDuration: isHighlighted ? 0.08 : 0.25, delay: 0, options: [.beginFromCurrentState, .allowUserInteraction]) {
                 self.transform = self.isHighlighted ? CGAffineTransform(scaleX: 0.94, y: 0.94) : .identity
             }
@@ -235,10 +243,38 @@ final class TabStackButton: UIControl {
     }
 
     override var isHighlighted: Bool {
-        didSet { alpha = isHighlighted ? 0.6 : 1 }
+        didSet {
+            PressHaptics.play(for: self, from: oldValue, to: isHighlighted)
+            alpha = isHighlighted ? 0.6 : 1
+        }
     }
 
     override func point(inside point: CGPoint, with event: UIEvent?) -> Bool {
         bounds.insetBy(dx: -6, dy: -6).contains(point)
+    }
+}
+
+/// Arc Search's ticks under a finger on the bar's buttons (MobilePressHaptics, #675): a light one as the finger comes
+/// down, a soft one as it lets go. iOS leaves them out when System Haptics is off. With `-CraCountHaptics YES` a
+/// button also counts the ticks it played in its accessibility value ("ticks 2"), for a UI test: the simulator plays none.
+@MainActor
+enum PressHaptics {
+    private static let counts = LaunchOptions.value("CraCountHaptics") == "YES"
+    private static let press = UIImpactFeedbackGenerator(style: .light)
+    private static let release = UIImpactFeedbackGenerator(style: .soft)
+
+    static func play(for control: UIControl, from was: Bool, to now: Bool) {
+        guard let id = control.accessibilityIdentifier, MobilePressHaptics.barButtons.contains(id),
+              let tick = MobilePressHaptics.tick(from: was, to: now) else { return }
+        switch tick {
+        case .press:
+            press.impactOccurred()
+            release.prepare()
+        case .release:
+            release.impactOccurred()
+        }
+        guard counts else { return }
+        let played = control.accessibilityValue.flatMap { Int($0.split(separator: " ").last ?? "") } ?? 0
+        control.accessibilityValue = "ticks \(played + 1)"
     }
 }

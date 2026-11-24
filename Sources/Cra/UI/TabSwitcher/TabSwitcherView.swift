@@ -223,7 +223,7 @@ private final class TabSwitcherCardView: NSView {
             addSubview(i)
             addSubview(p)
             paneIcons.append((i, p))
-            }
+        }
         while paneIcons.count > item.panes.count {
             let last = paneIcons.removeLast()
             last.icon.removeFromSuperview()

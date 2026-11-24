@@ -66,18 +66,26 @@ git push origin v0.1.0
 #    that check-ins from it reach Phantom's "Cra installs" site (release-checklist.md, "Install count").
 ```
 
+While Apple notarizes, `release.sh` runs the web features (`scripts/scenario.sh web-features`: file pickers,
+print, dialogs, prompts, choosers) on the release's own build, and stops the release when one fails
+([web-features.md](web-features.md)). The result goes into the release as `web-features-arm64.txt`;
+`scripts/promote.sh` makes only a release whose file says `result: passed` Stable.
+
 Clips come after the tag, not before: the build and Apple's check run while they're recorded. The
 clip hook checks the website push, not the tag (see "Clips in the release notes").
 
 ### Notarization
 
-Each CPU is notarized once: `release.sh` packages the signed app into its DMG and
-`scripts/notarize.sh` submits the DMG, whose ticket covers the app inside, then staples the DMG
-and the app and zips the stapled app. Apple usually answers in minutes; on 17 Nov 2026 it took
-52, so the wait is 2 hours.
+Each CPU is notarized twice (`scripts/notarize-dist.sh`): `release.sh` packages the signed app into its DMG,
+`scripts/notarize.sh` submits that DMG, whose ticket covers the app inside, and staples the app; then `package.sh`
+packs the DMG again with the stapled app, and that DMG is submitted and stapled in turn. So the app inside the
+DMG carries its own ticket and opens offline on its first launch (GitHub #720: until 0.1.54 only the DMG and the
+update zip had one). `release.sh` stops unless the DMG and the app in it are both stapled, then zips the stapled
+app. Apple usually answers in minutes; on 17 Nov 2026 it took 52, so each wait is up to 2 hours.
 
 A run that stops while Apple is still checking keeps its work. `notarize.sh` writes the
-submission id next to the DMG (`Cra.dmg.submission`) as soon as Apple has it; when a build job
+submission id next to the DMG (`Cra.dmg.submission`) as soon as Apple has it (a stapled app in the kept files means
+it is the second DMG's); when a build job
 fails or is cancelled, the workflow uploads the signed app, the DMG and the id
 (`scripts/keep-pending.sh`, artifact `pending-<version>-<arch>`). Rerun the failed job
 (`gh run rerun <id> --failed`): it downloads them and only waits for that submission, then
@@ -163,9 +171,10 @@ scripts/release.sh
 ```
 
 `scripts/release.sh` does this once per CPU (`CRA_ARCHS`, default `arm64 x86_64`): it runs
-`build.sh` (sign, innermost first, with the helper entitlements), notarizes and staples the
-app, runs `package.sh` (zip, DMG with an Applications link, checksums), then notarizes and
-staples the DMG, checks it with `spctl` and writes that CPU's appcast. Both CPUs share one
+`build.sh` (sign, innermost first, with the helper entitlements), runs `package.sh` (zip, DMG with an
+Applications link, checksums), notarizes the DMG and staples the app, packs the DMG again with the stapled
+app and notarizes and staples that (`notarize-dist.sh`), checks both tickets and `spctl` and writes that CPU's
+appcast. Both CPUs share one
 build number. Without `CRA_SIGN_IDENTITY` it produces an ad-hoc build and skips notarization.
 
 `CRA_ARCH=x86_64 scripts/build.sh` builds the other CPU on its own: the host CPU keeps
@@ -379,7 +388,9 @@ ships the pinned engine anyway, for an urgent fix while the new one builds; in C
 
 To move to a new Chrome stable: `CHROMIUM_TAG=<version> scripts/build-chromium.sh sync`, then `apply`; a patch
 that no longer applies is rebased in `engine/chromium/patches` (`apply.sh` names it), then `gen` and `build` for
-each CPU, the scenarios on the new build, `publish-engine.sh` and the new pin.
+each CPU, the scenarios on the new build (`scripts/scenario.sh web-features` first), `publish-engine.sh` and the new
+pin. `build-chromium.sh apply` and `publish-engine.sh` stop when the new Chrome has a page hook
+(`WebContentsDelegate` method) that `Tests/web-features.tsv` doesn't map ([web-features.md](web-features.md)).
 
 `CRA_ENGINE=cef` still builds and releases on CEF (Cra's own CEF build: `scripts/build-cef.sh`,
 `scripts/cef-patches`, `scripts/publish-cef.sh`, `scripts/fetch-cef.sh`, and CEF's own release checks).

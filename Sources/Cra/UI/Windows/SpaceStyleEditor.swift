@@ -22,7 +22,8 @@ struct SpaceStyleEditor: View {
         _theme = State(initialValue: theme)
         // A one-colour theme stores its colour twice (a flat fill): one handle on the pad.
         let key = theme.key ?? (theme.solid || Set(theme.colors).count == 1 ? Array(theme.colors.prefix(1)) : theme.colors)
-        _pad = State(initialValue: PadState(key: key, intensity: theme.intensity, noise: theme.noise, appearance: theme.appearance))
+        _pad = State(initialValue: PadState(key: key, wheel: theme.wheel ?? SpaceColorPresets.wheel(of: key),
+                                            intensity: theme.intensity, noise: theme.noise, appearance: theme.appearance))
         // The page with the space's colour, else the one shown last (Arc: currentThemeEditorPresetPage).
         let last = UserDefaults.standard.integer(forKey: Self.pageKey)
         _swatchPage = State(initialValue: SpaceColorPresets.page(of: key)
@@ -48,7 +49,9 @@ struct SpaceStyleEditor: View {
                     let page = SpaceColorPresets.pages[swatchPage]
                     ForEach(Array(page.swatches.enumerated()), id: \.offset) { i, colors in
                         WithPerceptionTracking {
-                        Button { pad.key = colors } label: {
+                        // Arc: a page-2 swatch is three colours on the analogous wheel, any other one
+                        // colour that + takes across the wheel (#632).
+                        Button { pad.key = colors; pad.wheel = page.wheel } label: {
                             Circle()
                                 .fill(LinearGradient(colors: colors.map { Color(hex: $0) }, startPoint: .topLeading, endPoint: .bottomTrailing))
                                 .frame(width: 24, height: 24)
@@ -89,8 +92,29 @@ struct SpaceStyleEditor: View {
         .environment(\.editorInk, lightCard ? .black : .white)
         // Opening the editor leaves the theme as it is; the first change rebuilds it from the pad.
         .onChange(of: pad) { p in
-            theme = SpaceThemeVariants.theme(key: p.key, intensity: p.intensity, noise: p.noise, appearance: p.appearance)
+            theme = SpaceThemeVariants.theme(key: p.key, intensity: p.intensity, noise: p.noise, appearance: p.appearance, wheel: p.wheel)
             onChange(theme)
+        }
+        // A scenario moves the slider or the dial as a drag would (cra://debug?themeEditor=intensity:0.5).
+        .onReceive(NotificationCenter.default.publisher(for: SpaceStyleTick.debugSet)) { note in
+            if let v = note.userInfo?["intensity"] as? Double { pad.intensity = min(max(v, 0), 1) }
+            if let v = note.userInfo?["noise"] as? Double { pad.noise = min(max(v, 0), 1) }
+            // …or presses swatch <page><index> (swatch:13 is page 2's fourth), + or −, and reads the pad (#632).
+            var pressed = false
+            if let v = note.userInfo?["swatch"] as? Double, v >= 0, v < 100,
+               SpaceColorPresets.pages.indices.contains(Int(v) / 10), (0..<9).contains(Int(v) % 10) {
+                let page = SpaceColorPresets.pages[Int(v) / 10]
+                swatchPage = Int(v) / 10
+                pad.key = page.swatches[Int(v) % 10]
+                pad.wheel = page.wheel
+                pressed = true
+            }
+            if note.userInfo?["add"] != nil { (pad.key, pad.wheel) = SpaceColorWheel.adding(to: pad.key, wheel: pad.wheel); pressed = true }
+            if note.userInfo?["remove"] != nil { pad.key = SpaceColorWheel.removing(from: pad.key, wheel: pad.wheel); pressed = true }
+            if pressed {
+                SpaceStyleTick.padPresses += 1
+                CraLog.note("theme editor pad \(SpaceStyleTick.padPresses): wheel=\(pad.wheel.rawValue) key=\(pad.key.joined(separator: ","))")
+            }
         }
         }
     }
@@ -137,16 +161,19 @@ private struct PageArrow: View {
 /// What the editor's controls set (Arc: SpaceStyleEditor.State's colours, factors and darkModeBiasSetting).
 struct PadState: Equatable {
     var key: [String]
+    /// Where + , − and a drag put the second and third colours (Arc's `wheel`, #632).
+    var wheel: SpaceColorWheel.Wheel
     var intensity: Double
     var noise: Double
     /// "auto", "light" or "dark".
     var appearance: String
 }
 
-/// The dotted pad, a colour wheel: a handle's angle (clockwise from three o'clock) is its hue and its
-/// distance from the centre its saturation (full at 153 pt); a drag keeps the colour's brightness
-/// (0.95 on an empty pad). A second and third colour follow the first 40° either side; dragging any
-/// handle turns the set. + is off on a grey, as Arc's is (#455).
+/// The dotted pad, a colour wheel: a handle's angle (clockwise from three o'clock) is its Display P3
+/// hue and its distance from the centre its P3 saturation (full at 153 pt), as Arc's; a drag keeps
+/// the colour's brightness (0.95 on an empty pad). A second and third colour sit where the pad's
+/// wheel puts them, 40° either side or across the wheel (SpaceColorWheel, #632); dragging any handle
+/// turns the set. + is off on a grey, as Arc's is (#455).
 private struct ColorPad: View {
     @Environment(\.editorInk) private var ink
     @Binding var pad: PadState
@@ -210,7 +237,9 @@ private struct ColorPad: View {
                     Spacer()
                     HStack(spacing: 16) {
                         // − takes the last colour too: an empty pad is Arc's colourless theme (#300).
-                        padButton("minus", label: "Remove a color", enabled: SpaceColorWheel.canRemove(pad.key.count)) { pad.key.removeLast() }
+                        padButton("minus", label: "Remove a color", enabled: SpaceColorWheel.canRemove(pad.key.count)) {
+                            pad.key = SpaceColorWheel.removing(from: pad.key, wheel: pad.wheel)
+                        }
                         padButton("plus", label: "Add a color", enabled: SpaceColorWheel.canAdd(pad.key)) { addColor() }
                     }
                     .padding(.bottom, 20)
@@ -235,15 +264,13 @@ private struct ColorPad: View {
         let dx = p.x - c.x, dy = p.y - c.y
         let angle = Double(atan2(dy, dx) * 180 / .pi)
         let sat = Double(min(1, hypot(dx, dy) / Self.reach))
-        pad.key = SpaceColorWheel.placed(pad.key, handle: i, hue: angle, saturation: sat)
+        pad.key = SpaceColorWheel.placed(pad.key, handle: i, hue: angle, saturation: sat, wheel: pad.wheel)
     }
 
-    private func addColor() { pad.key = SpaceColorWheel.adding(to: pad.key) }
-
-    private static func offset(_ i: Int) -> CGFloat { CGFloat(SpaceColorWheel.offset(i)) }
+    private func addColor() { (pad.key, pad.wheel) = SpaceColorWheel.adding(to: pad.key, wheel: pad.wheel) }
 
     private static func wheel(_ hex: String) -> (CGFloat, CGFloat) {
-        let w = SpaceColorWheel.hsb(hex)
+        let w = SpaceColorWheel.padHSB(hex)
         return (CGFloat(w.hue), CGFloat(w.saturation))
     }
 
@@ -279,39 +306,71 @@ private struct AppearanceToggles: View {
     }
 }
 
-/// The intensity: a wave over a 15 pt track with a white 16 × 46.5 pt thumb; the wave grows with the
-/// value and is bright up to the thumb, faint after it.
+/// The intensity: a wave over a 15 pt track with a white thumb. As in Arc both grow with the value
+/// (SpaceStyleControls): the wave from a flat line to its full height, the thumb from 11.5 × 40.5 to
+/// 25.5 × 53 pt, a tenth larger under the pointer or held. The wave is bright up to the thumb and
+/// faint after it, and the value ticks as it crosses each tenth.
 private struct WaveSlider: View {
     @Environment(\.editorInk) private var ink
     @Binding var value: Double
+    @State private var hovered = false
+    @State private var dragging = false
 
     var body: some View {
         GeometryReader { geo in
             let w = geo.size.width, h = geo.size.height
-            let x = 8 + (w - 16) * CGFloat(value)
+            let inset = SpaceStyleControls.trackInset
+            let x = inset + (w - 2 * inset) * CGFloat(value)
             let wave = Path { p in
-                let amp = 3 + (h / 2 - 12) * CGFloat(value)
-                for px in stride(from: 8.0, through: w - 8, by: 1) {
-                    let y = h / 2 - amp * sin((px - 8) / (w - 16) * CGFloat.pi * 14)
-                    px == 8 ? p.move(to: CGPoint(x: px, y: y)) : p.addLine(to: CGPoint(x: px, y: y))
+                let amp = SpaceStyleControls.waveAmplitude(value: value)
+                for px in stride(from: inset, through: w - inset, by: 1) {
+                    let y = h / 2 - amp * sin((px - inset) / (w - 2 * inset) * CGFloat.pi * 14)
+                    px == inset ? p.move(to: CGPoint(x: px, y: y)) : p.addLine(to: CGPoint(x: px, y: y))
                 }
             }
-            let style = StrokeStyle(lineWidth: 4.5, lineCap: .round, lineJoin: .round)
+            let style = StrokeStyle(lineWidth: SpaceStyleControls.waveLine, lineCap: .round, lineJoin: .round)
+            let thumb = SpaceStyleControls.thumbSize(value: value, held: hovered || dragging)
             ZStack(alignment: .leading) {
                 Capsule().fill(ink.opacity(0.1)).frame(height: 15)
                 wave.stroke(ink.opacity(ink == .black ? 0.12 : 0.25), style: style)
                 // Arc's light card draws the lit wave at about half black (130 on 237), its dark one brighter.
                 wave.stroke(ink.opacity(ink == .black ? 0.36 : 0.75), style: style).mask(Rectangle().frame(width: x).frame(maxWidth: .infinity, alignment: .leading))
-                Capsule().fill(.white).frame(width: 16, height: 46.5).position(x: x, y: h / 2)
+                Capsule().fill(.white).frame(width: thumb.width, height: thumb.height).position(x: x, y: h / 2)
+                    .animation(.spring(response: SpaceStyleControls.heldSpring.response, dampingFraction: SpaceStyleControls.heldSpring.damping),
+                               value: hovered || dragging)
             }
             .contentShape(Rectangle())
-            .gesture(DragGesture(minimumDistance: 0).onChanged { g in value = min(max((g.location.x - 8) / (w - 16), 0), 1) })
+            .onHover { hovered = $0 }
+            .gesture(DragGesture(minimumDistance: 0)
+                .onChanged { g in
+                    dragging = true
+                    value = min(max((g.location.x - inset) / (w - 2 * inset), 0), 1)
+                }
+                .onEnded { _ in dragging = false })
+        }
+        .onChange(of: value) { [old = value] new in
+            if SpaceStyleControls.ticks(from: old, to: new, step: SpaceStyleControls.intensityStep) { SpaceStyleTick.play() }
         }
     }
 }
 
+/// Arc's tick for the slider and the dial: a generic haptic, now.
+@MainActor
+enum SpaceStyleTick {
+    /// How many have played, for a scenario, and the note a scenario moves a control with.
+    static var count = 0
+    /// Swatches, + and − a scenario has pressed, numbering its "theme editor pad" lines.
+    static var padPresses = 0
+    static let debugSet = Notification.Name("CraDebugThemeEditorSet")
+
+    static func play() {
+        count += 1
+        NSHapticFeedbackManager.defaultPerformer.perform(.generic, performanceTime: .now)
+    }
+}
+
 /// The grain: a dark disc showing it, a ring of dots lit from twelve o'clock round to a white knob;
-/// turning the knob sets the value.
+/// turning the knob sets the value, with a tick at each fifth.
 private struct GrainDial: View {
     @Environment(\.editorInk) private var ink
     @Binding var value: Double
@@ -342,6 +401,10 @@ private struct GrainDial: View {
                 if a < 0 { a += 2 * .pi }
                 value = a / (2 * .pi)
             })
+        }
+        // Arc's dial ticks as the grain crosses each fifth.
+        .onChange(of: value) { [old = value] new in
+            if SpaceStyleControls.ticks(from: old, to: new, step: SpaceStyleControls.grainStep) { SpaceStyleTick.play() }
         }
     }
 }

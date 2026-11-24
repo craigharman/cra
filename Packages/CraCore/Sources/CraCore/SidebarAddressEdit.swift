@@ -1,8 +1,9 @@
 import Foundation
 
 /// The sidebar's URL field edited where it is (GitHub #344, not in Arc). Arc's sidebar field opens
-/// the command bar on a click; Settings ▸ Tabs ▸ "Edit the address in the sidebar" turns it into a
-/// text field in place instead, the way Arc's developer bar edits its URL (ContentPanelTextField).
+/// its address panel on a click (SidebarAddressPanel, #663); Settings ▸ Tabs ▸ "Edit the address in
+/// the sidebar" turns it into a text field in place instead, the way Arc's developer bar edits its
+/// URL (ContentPanelTextField).
 /// ⌘L and ⌘T keep opening the command bar either way.
 public enum SidebarAddressEdit {
     /// What a click on the field does.
@@ -38,5 +39,23 @@ public enum SidebarAddressEdit {
         let url = TypedURL.looksLikeURL(t) ? TypedURL.fromInput(t) : searchURL(t)
         if pinned, PinnedNavigation.typedURLOpensNewTab(url, from: currentURL) { return .newTab(url) }
         return .load(url)
+    }
+}
+
+/// A press outside the sidebar's address while it is open: Arc's address panel (#691) or the field
+/// edited in place (#692). Both closed only when the keys moved, and some presses never move them.
+public enum SidebarAddressOutsideClick {
+    /// The floating sidebar's panel takes the keys only when a click needs them, so a click on its
+    /// empty space left the bar holding them, open. Arc 1.174.1 closes the panel and keeps the
+    /// sidebar. Any bar: the centred one closes on a click outside it too.
+    public static func closesBar(barOpen: Bool, inFloatingSidebar: Bool) -> Bool {
+        barOpen && inFloatingSidebar
+    }
+
+    /// A press in the window the sidebar is in (the browser window, or the floating sidebar's panel),
+    /// not on the field: #344's "a click elsewhere puts the address back". A press in another window
+    /// takes the keys, which ends the edit already.
+    public static func endsEdit(editing: Bool, inSidebarsWindow: Bool, onField: Bool) -> Bool {
+        editing && inSidebarsWindow && !onField
     }
 }

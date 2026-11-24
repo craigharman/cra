@@ -105,7 +105,10 @@ session permissions and the provider API are documented in [Live folder plugins]
 - Folder: `SidebarItem.liveFolder` (LiveFolderData), tabs carry `liveItemURL` and `liveSubtitle`.
   SidebarStore.applyPluginResults adds and updates tabs, moves a Today tab already on a new pull request into
   the folder, and marks ones that left the results (`liveGoneAt`); `expireLiveItems` removes them 120 s later
-  (a tab open in a window stays until it isn't). Closing or dragging a tab out adds it to `hiddenItems`.
+  (a tab open in a window stays until it isn't). A tab on one of its item's own pages (Files changed, a comment
+  link, a query, owner/repo in another case) still counts as on it and goes too; one on another page stays
+  (`LiveItemPage`, #697). Closing or dragging a tab out adds it to `hiddenItems`, and refreshes leave it out
+  as Arc's do (#697 asked for them to come back; Arc keeps them out); Reopen Closed Tab puts it back.
   Nothing can be dropped into a live folder.
 - Refresh, on Dia's schedule: at most every 120 s and only while Cra is the active app; when any Cra window
   becomes key; from the folder's button and menu (10 s apart); forced when a filter changes; forced 5 s and
@@ -137,6 +140,11 @@ session permissions and the provider API are documented in [Live folder plugins]
   pull request was moved into the folder without a duplicate; no fetch for 2.5 minutes in the background,
   one within a second of the window taking focus.
 - Not verified: the review trigger (`#pullrequestreview-` anchor) with a real review.
+- Organisation SSO (19 Nov 2026, Victor's session with jysk-dev's SAML lapsed): `/pulls` with the JSON headers
+  lists pull requests but never the organisations waiting for SSO; the `/pulls` HTML page has them in its
+  layout's `sso.sso_organizations[].login` (what Arc reads) and the search JSON in `protected_org_logins`. The
+  plugin read only those two keys from the JSON answers, so a folder with pull requests from elsewhere showed
+  no key (#521). It now reads the `/pulls` page once per refresh when no answer named them.
 
 ## GitLab live folders (Cra only; contributed by STRENCH0, #223)
 

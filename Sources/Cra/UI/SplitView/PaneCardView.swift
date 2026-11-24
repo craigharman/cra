@@ -79,6 +79,10 @@ final class PaneCardView: NSView {
     /// White page card, or Arc's tinted translucent empty pane.
     var hasPage = true { didSet { refreshBackground(); syncShadow(); if floatsToolbar, hasPage != oldValue { needsLayout = true } } }
     var isDark = false { didSet { refreshBackground() } }
+    /// The space's Auto, Light or Dark and how light its colours are: what Arc's card with no tab follows (#669).
+    var ground: (appearance: String, lightness: Double) = ("auto", 0.5) {
+        didSet { if ground != oldValue { refreshBackground() } }
+    }
     /// The page's own background ("#RRGGBB"; Arc's canvas until it reports one). The page window
     /// trails the card by a frame or more while the window is resized quickly, and a page that is
     /// loading has not painted yet; in those gaps the page area must look like the page, not
@@ -119,6 +123,8 @@ final class PaneCardView: NSView {
         }
     }
     private let ring = FocusRingView()
+    /// `cra://debug?tabSharing`: the card shows the yellow ring of a page a call shares.
+    var showsSharedRing: Bool { focusRing == .systemYellow }
     /// Arc's shadow under a page card (GitHub #178): a sibling behind the card in its superview,
     /// on the card's frame and alpha. The window's card with no tab casts it too, as Arc's does (CraCore
     /// CardVeil). Off for an empty pane's card and square cards.
@@ -216,7 +222,13 @@ final class PaneCardView: NSView {
 
     private func refreshBackground() {
         let noTab = tabID == ShellView.noTabID
-        let veil = CGFloat(CardVeil.white(noTab: noTab, dark: isDark))
+        // With no tab Arc's card follows its appearance (the space's Light or Dark, macOS on Auto), not how dark the
+        // theme reads: white on Light, faint on Dark, a light theme too (#669).
+        let veil = CGFloat(noTab
+            ? CardVeil.noTabCard(light: SpaceTheme.isLight(ground.appearance, systemDark: SystemAppearance.shared.isDark,
+                                                                     forcedDark: SystemAppearance.shared.forcedDark),
+                                 groundLightness: ground.lightness)
+            : CardVeil.white(noTab: false, dark: isDark))
         layer?.backgroundColor = hasPage ? NSColor.clear.cgColor : NSColor(white: 1, alpha: veil).cgColor
         let bar = developerBar ?? toolbarColor.map { NSColor(Color(hex: $0)) } ?? .white
         // A page of Cra's own over the backdrop (an Easel) takes its veil under the toolbar too, as Arc's does.

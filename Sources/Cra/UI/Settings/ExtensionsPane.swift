@@ -23,7 +23,7 @@ struct ExtensionsPane: View {
                     } trailing: { EmptyView() }
                 }
                 ForEach(Array(extensions.entries.enumerated()), id: \.element.id) { i, e in
-                        WithPerceptionTracking {
+                    WithPerceptionTracking {
                     if i > 0 { SettingsCardDivider() }
                     SettingsCardRow {
                         VStack(alignment: .leading, spacing: 2) {
@@ -39,9 +39,9 @@ struct ExtensionsPane: View {
                             Button("Remove") { extensions.remove(e) }
                         }
                     }
+                    }
                 }
             }
-                }
             HStack {
                 Button("Add Unpacked Extension…") { addExtension() }
                 Spacer()
@@ -56,7 +56,7 @@ struct ExtensionsPane: View {
             // Live Folder plugins have no Arc tab either: they sit under the extensions.
             PluginsPane().settingsNested().padding(.top, 20)
         }
-    }
+        }
     }
 
     private func addExtension() {

@@ -23,6 +23,7 @@ enum PolicyTests {
         try webHandoff()
         try defaultBrowserPicker()
         try iPhoneDefaultBrowser()
+        try iPhoneWebContentLoadsHTTP()
         print("Policies: \(checks) checks passed")
     }
 
@@ -95,6 +96,21 @@ enum PolicyTests {
         let schemes = (info?["CFBundleURLTypes"] as? [[String: Any]] ?? [])
             .flatMap { $0["CFBundleURLSchemes"] as? [String] ?? [] }
         expect(schemes.contains("http") && schemes.contains("https"), "the iPhone app opens http and https links")
+    }
+
+    // promise: #568
+    /// #568: every http:// address opened as a blank white page on the iPhone. With no
+    /// NSAppTransportSecurity entry iOS refuses plain-http loads in the web view too (error -1022).
+    /// NSAllowsArbitraryLoadsInWebContent is Apple's key for browsers: it lets web views load http
+    /// as Arc Search, Safari and Cra for Mac do, while the app's own requests stay under ATS. The
+    /// broader NSAllowsArbitraryLoads would let those through as well, and iOS ignores the
+    /// web-content key when it is set.
+    private static func iPhoneWebContentLoadsHTTP() throws {
+        let plist = try Data(contentsOf: URL(fileURLWithPath: "iOS/Support/Info.plist"))
+        let info = try PropertyListSerialization.propertyList(from: plist, format: nil) as? [String: Any]
+        let ats = info?["NSAppTransportSecurity"] as? [String: Any]
+        expect(ats?["NSAllowsArbitraryLoadsInWebContent"] as? Bool == true, "the iPhone app's web views load http:// pages")
+        expect(ats?["NSAllowsArbitraryLoads"] == nil, "the app's own requests stay https-only")
     }
 
     /// #41: a click never reaches an extension turned off in chrome://extensions (Chromium crashed
@@ -206,7 +222,11 @@ enum PolicyTests {
         expect(FeatureFlags(parsing: "x=1&backdrop=material&y").backdrop == .material, "other keys around it are ignored")
         expect(FeatureFlags(parsing: "backdrop=glass").backdrop == .layer && FeatureFlags(parsing: "backdrop").backdrop == .layer,
                "an unknown value or a bare key keeps the default")
-        expect(FeatureFlags(parsing: "backdrop=material").summary == "backdrop=material", "the log line names the path")
+        expect(FeatureFlags(parsing: "backdrop=material").summary == "backdrop=material sidebarSlide=live", "the log line names the paths")
+        // #613: ⌘S resizes the page as the sidebar slides, as Arc does; frozen keeps #317's page sized up front.
+        expect(FeatureFlags(parsing: "").sidebarSlide == .live, "the sidebar's slide resizes the page live by default (Arc's)")
+        expect(FeatureFlags(parsing: "sidebarSlide=frozen&backdrop=material").sidebarSlide == .frozen, "CRA_FLAGS picks the frozen slide")
+        expect(FeatureFlags(parsing: "sidebarSlide=fast").sidebarSlide == .live, "an unknown slide keeps the default")
     }
 
     private static func expect(_ condition: @autoclosure () -> Bool, _ message: String) {

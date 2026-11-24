@@ -29,7 +29,7 @@ struct TabsPane: View {
             }
             SettingsFootnote("\(KeyBindingRegistry.shared.action("toggleToolbar")?.primary?.display ?? "⇧⌘D") in any window, or the View menu’s Show Toolbar, switches it too.")
             SettingsFeatureCard {
-                // GitHub #344, not in Arc: Arc's sidebar address opens the command bar on a click.
+                // GitHub #344, not in Arc: Arc's sidebar address opens its address panel on a click (#663).
                 SettingsToggleRow("Edit the address in the sidebar",
                                   detail: "Clicking the address at the top of the sidebar lets you edit it right there instead of opening the command bar. \(KeyBindingRegistry.shared.action("editURL")?.primary?.display ?? "⌘L") still opens the command bar.",
                                   isOn: $store.settings.editAddressInPlace,
@@ -63,13 +63,30 @@ struct TabsPane: View {
                                   detail: "The sidebar, with the window’s close, minimize and zoom buttons, sits on the right of the window. Hidden, it slides in from the right edge.",
                                   isOn: Binding(get: { store.settings.sidebarSide == .right },
                                                 set: { store.settings.sidebarSide = $0 ? .right : .left })) { SettingsArt.sidebarOnRight }
+                SettingsCardDivider()
+                // Ideas #366, not in Arc: the space's colours thin over a glass (SidebarGlass).
+                SettingsSwitchRow("Translucent sidebar",
+                                  detail: "The sidebar and the window around your pages turn to glass, so what’s behind the window shows through, darkened on a dark theme. The floating sidebar lets the page under it show through.",
+                                  isOn: $store.settings.translucentSidebar) { SettingsArt.translucentSidebar }
             }
 
             SettingsHeader("Pages").padding(.top, 20)
             SettingsFeatureCard {
+                // Ideas #366, not in Arc: the room round the pages (PageMargin); Edge to edge is its zero.
+                SettingsFeatureRow("Margin",
+                                   detail: "How much room is left around your pages, from 1 pt to Arc’s 10 pt. Edge to edge takes it away.",
+                                   picture: { SettingsArt.pageMargin(store.settings.pageMargin) },
+                                   trailing: { SettingsMarginSlider(margin: $store.settings.pageMargin, enabled: !store.settings.edgeToEdgeContent) })
+                SettingsCardDivider()
                 SettingsSwitchRow("Edge to edge",
-                                  detail: "Pages fill the window, with no margin or rounded corners around them.",
+                                  detail: "Pages fill the window, with no margin around them and square corners, unless Rounded corners is on.",
                                   isOn: $store.settings.edgeToEdgeContent) { SettingsArt.edgeToEdge }
+                SettingsCardDivider()
+                // Ideas #582, not in Arc: edge to edge keeps the round (CardFill.cornerRadius).
+                SettingsSwitchRow("Rounded corners",
+                                  detail: "Edge to edge, pages keep rounded corners, still with no margin or shadow around them. In a split every page is rounded.",
+                                  isOn: $store.settings.edgeToEdgeRoundedCorners,
+                                  enabled: store.settings.edgeToEdgeContent) { SettingsArt.edgeToEdgeRounded }
                 SettingsCardDivider()
                 // Not in Arc (#404): the toolbar floats over the page (ToolbarAutoHide).
                 SettingsSwitchRow("Hide the toolbar until you need it",
@@ -84,6 +101,11 @@ struct TabsPane: View {
                 SettingsToggleRow("Share Favorites across Spaces",
                                   detail: "Spaces on the same profile show the same Favorites, as in Arc. Turning it on combines their Favorites; turning it off gives each Space its own copy.",
                                   isOn: Binding(get: { store.settings.sharedFavorites }, set: { store.setFavoritesShared($0) }))
+                SettingsCardDivider()
+                // GitHub #601, not in Arc: Arc's ⇧⌘T switches to the space of the tab closed last.
+                SettingsToggleRow("Reopen tabs from this Space only",
+                                  detail: "Restore Last Closed Tab (⇧⌘T) brings back the tab you closed last in the Space you’re in, instead of switching to another Space.",
+                                  isOn: $store.settings.reopenClosedTabCurrentSpaceOnly)
             }
 
             SettingsHeader("Memory").padding(.top, 20)

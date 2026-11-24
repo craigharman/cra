@@ -30,6 +30,48 @@ public enum AppLinks {
     /// Chrome's kAllowedSchemes.
     static let openedSchemes: Set<String> = ["mailto", "news", "snews"]
 
+    /// Chrome's flood guard for a page's own redirect to another app (Slack's "Launching…" page
+    /// after a sign-in, Spotify's "open in the app" on a first visit): a click asks every time;
+    /// without one, a page asks once, then gets nothing until a page loads again (another page,
+    /// or this one reloaded: Chrome's Reload button lets it ask again). history.pushState is not
+    /// a load, so a page can't buy itself more questions with it. One per tab, in both engines.
+    public struct RedirectGuard: Sendable {
+        /// This load has had its one question without a click.
+        private var asked = false
+
+        public init() {}
+
+        /// A page committed in the main frame (a new page, or a reload): it may ask once again.
+        public mutating func pageLoaded() { asked = false }
+
+        /// Whether a request to open another app may ask "Open <app>?".
+        public mutating func mayAsk(userGesture: Bool) -> Bool {
+            if userGesture { return true }
+            if asked { return false }
+            asked = true
+            return true
+        }
+    }
+
+    /// Whether a request to `url` with no click of its own may still go, once per page load (RedirectGuard):
+    /// another app's address, asked about, and mail, opened. Chrome's flood guard lets either through once
+    /// without a gesture; Cra let only the first through, so a new window a page sent to mailto: opened
+    /// nothing (#684).
+    public static func mayGoWithoutClick(_ url: String) -> Bool {
+        let k = kind(of: url)
+        return k == .asksFirst || k == .opens
+    }
+
+    /// Whether the page that asked for another app's address is a new tab or window that never showed a page
+    /// (window.open(), then sent to mailto:): it closes once the address is handed to macOS, as Chrome closes
+    /// a tab whose first navigation went to an app (external_protocol_handler.cc). It stayed as an empty
+    /// about:blank window (#684).
+    public static func closesRequester(currentURL: String, canGoBack: Bool) -> Bool {
+        guard !canGoBack else { return false }
+        return currentURL.isEmpty || currentURL == "about:blank" || currentURL.hasPrefix("about:blank#")
+            || currentURL.hasPrefix("about:blank?")
+    }
+
     /// What `url` is for a link or window.open that wants a new tab, or a WebKit page's own
     /// navigation to a scheme WebKit doesn't load.
     public static func kind(of url: String) -> Kind {
@@ -42,5 +84,31 @@ public enum AppLinks {
         if scheme.hasPrefix("web+") || pageSchemes.contains(scheme) { return .page }
         if refusedSchemes.contains(scheme) { return .refused }
         return openedSchemes.contains(scheme) ? .opens : .asksFirst
+    }
+}
+
+// MARK: Typed addresses (#604)
+
+extension AppLinks {
+    /// What Return does with an address typed in the command bar (⌘T, ⌘L, a Little Window's bar).
+    public enum Typed: Equatable, Sendable {
+        /// A page: the engine loads it.
+        case load
+        /// Another app's address with an app that opens it: macOS opens it, no tab. Typed by the person,
+        /// it is their click, so no "Open <app>?" first (#604: todoist:// opened nothing, as Arc did).
+        case openApp
+        /// Another app's address no app here opens: it is searched for, as Chrome treats a scheme
+        /// nothing is registered for.
+        case search
+        /// A scheme never handed to macOS (afp:, cra:): nothing happens.
+        case refuse
+    }
+
+    public static func typed(_ url: String, hasApp: Bool) -> Typed {
+        switch kind(of: url) {
+        case .page: return .load
+        case .refused: return .refuse
+        case .asksFirst, .opens: return hasApp ? .openApp : .search
+        }
     }
 }

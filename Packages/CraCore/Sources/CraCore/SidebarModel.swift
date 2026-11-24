@@ -136,6 +136,19 @@ public struct SplitData: Codable, Equatable {
     /// The pane that has keyboard focus (Arc: focusItemID).
     public var focusTabID: UUID?
     public var timeLastActiveAt: Date?
+    /// Arc's Change Icon… on a split (customInfo.iconType, #600): an emoji, or an SF Symbol from the
+    /// picker's Icon tab. With one, the row shows it and the name (or "N Tabs") instead of the panes.
+    public var emoji: String?
+    public var symbol: String?
+
+    /// The icon as the picker gives it; `.none` clears it. A picture isn't offered for a split.
+    public var icon: SpaceIcon {
+        get { SpaceIcon(emoji: emoji ?? "", symbol: symbol) }
+        set {
+            emoji = newValue.emoji.isEmpty ? nil : newValue.emoji
+            symbol = newValue.symbol
+        }
+    }
 
     public init() {}
     public init(from decoder: Decoder) throws {
@@ -144,6 +157,8 @@ public struct SplitData: Codable, Equatable {
         orientation = try c.decodeIfPresent(SplitOrientation.self, forKey: .orientation) ?? .horizontal
         focusTabID = try c.decodeIfPresent(UUID.self, forKey: .focusTabID)
         timeLastActiveAt = try c.decodeIfPresent(Date.self, forKey: .timeLastActiveAt)
+        emoji = try c.decodeIfPresent(String.self, forKey: .emoji)
+        symbol = try c.decodeIfPresent(String.self, forKey: .symbol)
     }
 }
 
@@ -391,12 +406,14 @@ public struct SidebarDocument: Codable, Equatable {
     public var items: [SidebarItem]
     /// Profiles besides Default (missing in files from before profiles).
     public var profiles: [BrowserProfile]?
+    /// The Default profile's name once renamed (ProfileNames, #666); missing while it is "Default".
+    public var defaultProfileName: String?
     /// Arc's favorites per profile (topApps{profile}), with AppSettings.sharedFavorites on: the
     /// list each profile's spaces show. A list outlives its spaces, as in Arc (#154).
     public var profileFavorites: [ProfileFavorites]?
 
     public init(version: Int = 1, spaceOrder: [UUID], spaces: [Space], favoritesContainerID: UUID? = nil, items: [SidebarItem],
-                profiles: [BrowserProfile]? = nil, profileFavorites: [ProfileFavorites]? = nil) {
+                profiles: [BrowserProfile]? = nil, profileFavorites: [ProfileFavorites]? = nil, defaultProfileName: String? = nil) {
         self.version = version
         self.spaceOrder = spaceOrder
         self.spaces = spaces
@@ -404,6 +421,7 @@ public struct SidebarDocument: Codable, Equatable {
         self.items = items
         self.profiles = profiles
         self.profileFavorites = profileFavorites
+        self.defaultProfileName = defaultProfileName
     }
 
     public static func fresh() -> SidebarDocument {
@@ -715,6 +733,10 @@ public struct AppSettings: Codable, Equatable {
     /// GitHub #307, not in Arc: ⌘T searches and lists only the open tabs of the window's space
     /// (`TabSearchScope.commandBarTabs`). Off is Arc's bar, which finds a tab in any space.
     public var commandBarCurrentSpaceOnly: Bool = false
+    /// GitHub #601, not in Arc: ⇧⌘T reopens the tab closed last in the window's space and stays
+    /// there (`ReopenClosedTab.next(isInCurrentSpace:)`). Off is Arc's, which switches to the space
+    /// the tab closed last was in.
+    public var reopenClosedTabCurrentSpaceOnly: Bool = false
     /// Settings ▸ Advanced ▸ Command bar ▸ "Fill the command bar with the site’s color" (not in Arc,
     /// GitHub #457): while Tab's site search is on, the bar takes the site's colour
     /// (`ScopedSearchFill`). Off, the bar stays Arc's: the site only in the pill and a one-second wash.
@@ -731,6 +753,15 @@ public struct AppSettings: Codable, Equatable {
     /// GitHub #24, not in Arc: the page fills the window with no margin and no rounded
     /// card, like a traditional browser. Off by default.
     public var edgeToEdgeContent: Bool = false
+    /// Ideas #582, not in Arc: edge to edge, the pages keep their rounded corners (CardFill.cornerRadius),
+    /// still with no margin or shadow. Only means something while `edgeToEdgeContent` is on.
+    public var edgeToEdgeRoundedCorners: Bool = false
+    /// Ideas #366, not in Arc: the room round the page card in a window, 1 to 10 pt (PageMargin). Arc's 10 by
+    /// default; edge to edge (`edgeToEdgeContent`) is its zero and wins while on.
+    public var pageMargin: Double = PageMargin.arc
+    /// Ideas #366, not in Arc: the sidebar and the window's ground are a thin glass over what is behind
+    /// the window, and the floating sidebar over the page it covers (SidebarGlass). Off by default.
+    public var translucentSidebar: Bool = false
     /// GitHub #464, not in Arc: the sidebar docks on the window's right (SidebarSide). Left is Arc's.
     public var sidebarSide: SidebarSide = .left
     /// GitHub #91, Settings ▸ Performance: Cra records its own performance on this Mac (stalls,
@@ -765,6 +796,11 @@ public struct AppSettings: Codable, Equatable {
     /// Arc's per-profile "New documents" (#375), by NewDocumentApp.key(profileID:): the app the
     /// command bar's "New …" command opens. A profile that isn't here has none (Arc's "——").
     public var newDocumentApps: [String: NewDocumentApp] = [:]
+    /// Arc's per-profile "Archive tabs after" (#693), by DownloadLocation.key(profileID:): "never" or an
+    /// AutoArchiveThreshold's name. Default's stays `autoArchive`/`autoArchiveEnabled`; a profile that isn't
+    /// here archives as Default does (`autoArchive(profileID:)`). Strings, so a name from a newer Cra
+    /// can't fail the file.
+    public var profileAutoArchive: [String: String] = [:]
     /// Settings ▸ Privacy ▸ "Share anonymous usage stats" and onboarding's Privacy step (Dia's
     /// "Help improve Dia" row): a daily UsageStats report. Off unless the user turns it on.
     public var shareUsageStats: Bool = false
@@ -890,10 +926,13 @@ public struct WindowPrefs: Codable, Equatable {
     }
     /// Last Little Window size (Arc: LittleBrowserWindow_size).
     public var littleWindowSize: String?
+    /// The sidebar as it was last hidden or shown (⌘S, a drag of its edge), in any window: what a new
+    /// window opens with, incognito and Blank Windows too. Arc's sidebarViewPreferences.sidebarMode (#644).
+    public var sidebarVisibleInNewWindows = true
 
     public init(sidebarWidth: Double = 328, expandedFolders: Set<UUID> = [], collapsedPinnedSpaces: Set<UUID> = [],
                 favoritesEmptyStateDismissed: Set<UUID> = [], peekedFolders: [UUID: [UUID]] = [:],
-                windows: [WindowSession] = [WindowSession()], littleWindowSize: String? = nil) {
+                windows: [WindowSession] = [WindowSession()], littleWindowSize: String? = nil, sidebarVisibleInNewWindows: Bool = true) {
         self.sidebarWidth = sidebarWidth
         self.expandedFolders = expandedFolders
         self.collapsedPinnedSpaces = collapsedPinnedSpaces
@@ -901,6 +940,7 @@ public struct WindowPrefs: Codable, Equatable {
         self.peekedFolders = peekedFolders
         self.windows = windows
         self.littleWindowSize = littleWindowSize
+        self.sidebarVisibleInNewWindows = sidebarVisibleInNewWindows
     }
 }
 
@@ -909,6 +949,14 @@ public struct HistoryEntry: Codable, Equatable {
     public var title: String
     public var lastVisit: Date
     public var visitCount: Int
+    /// The profiles the page was visited in (CommandBarProfileScope.key), so the command bar of a
+    /// space on one profile doesn't suggest what was browsed on another (#609). nil for an entry
+    /// saved before Cra kept them: its profile isn't known, and it is suggested everywhere as before.
+    public var profiles: [String]? = nil
+    /// How often the address was entered in the command bar (typed, or an Open URL or visited-page row
+    /// picked; not a search), as Chromium's typed_count: ⌘T completes a site's name to the address typed
+    /// most on it (TypedCompletion, #667). nil for never, so older files load and save as they were.
+    public var typedCount: Int? = nil
 
     public init(url: String, title: String, lastVisit: Date, visitCount: Int) {
         self.url = url
@@ -1025,11 +1073,15 @@ extension AppSettings {
         calendarMeetingLink = (try? c.decodeIfPresent(CalendarPreview.LinkTiming.self, forKey: .calendarMeetingLink)) ?? .twoMinutes
         searchSuggestions = try c.decodeIfPresent(Bool.self, forKey: .searchSuggestions) ?? true
         commandBarCurrentSpaceOnly = try c.decodeIfPresent(Bool.self, forKey: .commandBarCurrentSpaceOnly) ?? false
+        reopenClosedTabCurrentSpaceOnly = try c.decodeIfPresent(Bool.self, forKey: .reopenClosedTabCurrentSpaceOnly) ?? false
         commandBarSiteColor = try c.decodeIfPresent(Bool.self, forKey: .commandBarSiteColor) ?? false
         editAddressInPlace = try c.decodeIfPresent(Bool.self, forKey: .editAddressInPlace) ?? false
         showSpaceHeaderOnSingleSpace = try c.decodeIfPresent(Bool.self, forKey: .showSpaceHeaderOnSingleSpace) ?? true
         sharedFavorites = try c.decodeIfPresent(Bool.self, forKey: .sharedFavorites) ?? false
         edgeToEdgeContent = try c.decodeIfPresent(Bool.self, forKey: .edgeToEdgeContent) ?? false
+        edgeToEdgeRoundedCorners = try c.decodeIfPresent(Bool.self, forKey: .edgeToEdgeRoundedCorners) ?? false
+        pageMargin = (try? c.decodeIfPresent(Double.self, forKey: .pageMargin)) ?? PageMargin.arc
+        translucentSidebar = try c.decodeIfPresent(Bool.self, forKey: .translucentSidebar) ?? false
         sidebarSide = (try? c.decodeIfPresent(SidebarSide.self, forKey: .sidebarSide)) ?? .left
         perfRecording = try c.decodeIfPresent(Bool.self, forKey: .perfRecording) ?? Self.perfRecordingDefault
         perfHidesSiteNames = try c.decodeIfPresent(Bool.self, forKey: .perfHidesSiteNames) ?? false
@@ -1041,6 +1093,7 @@ extension AppSettings {
         instantLinks = try c.decodeIfPresent(Bool.self, forKey: .instantLinks) ?? false
         downloadLocations = (try? c.decodeIfPresent([String: DownloadLocation].self, forKey: .downloadLocations)) ?? [:]
         newDocumentApps = NewDocumentApp.decodeMap(try? c.decodeIfPresent([String: String].self, forKey: .newDocumentApps))
+        profileAutoArchive = (try? c.decodeIfPresent([String: String].self, forKey: .profileAutoArchive)) ?? [:]
         shareUsageStats = try c.decodeIfPresent(Bool.self, forKey: .shareUsageStats) ?? false
         crashReports = (try? c.decodeIfPresent(CrashReportChoice.self, forKey: .crashReports)) ?? .ask
         askedToShare = try c.decodeIfPresent(Bool.self, forKey: .askedToShare) ?? false
@@ -1069,6 +1122,9 @@ extension WindowPrefs {
                                      sidebarVisible: try legacy.decodeIfPresent(Bool.self, forKey: .sidebarVisible) ?? true)]
         }
         littleWindowSize = try c.decodeIfPresent(String.self, forKey: .littleWindowSize)
+        // Files from before #644 carry no choice: the first saved window's sidebar stands in for it.
+        sidebarVisibleInNewWindows = try c.decodeIfPresent(Bool.self, forKey: .sidebarVisibleInNewWindows)
+            ?? windows.first?.sidebarVisible ?? true
     }
 }
 
@@ -1162,5 +1218,12 @@ public enum WebsiteAppearance: String, Codable, CaseIterable, Sendable {
         case .light: 1
         case .dark: 2
         }
+    }
+
+    /// The choice made in Chromium's own Mode (chrome://settings/appearance), which is this same
+    /// setting (#630); nil for a value Cra doesn't know.
+    public init?(chromiumMode: Int) {
+        guard let appearance = Self.allCases.first(where: { $0.chromiumMode == chromiumMode }) else { return nil }
+        self = appearance
     }
 }

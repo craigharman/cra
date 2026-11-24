@@ -198,6 +198,9 @@ final class KeyBindingRegistry {
             KeyAction(id: "copyURLMarkdown", name: "Copy URL as Markdown", section: .edit, shortcuts: [Shortcut("c", cmdOptShift)], triggers: ["markdown"]),
             // Arc: Edit ▸ Copy URL as Quote ⌃⇧⌘C, the selection with a link to it.
             KeyAction(id: "copyURLQuote", name: "Copy URL as Quote", section: .edit, shortcuts: [Shortcut("c", [.command, .shift, .control])], triggers: ["quote", "highlight"]),
+            // Arc 2023's "paste clipboard as new tab" ⌥⌘V, which Arc dropped in March 2024; kept here (#610).
+            KeyAction(id: "pasteAndGo", name: "Paste and Go", section: .edit, shortcuts: [Shortcut("v", cmdOpt)],
+                      triggers: ["paste and go", "paste clipboard", "open clipboard"]),
             KeyAction(id: "find", name: "Find…", section: .edit, shortcuts: [Shortcut("f", cmd)], triggers: ["find", "search page"]),
             KeyAction(id: "findNext", name: "Find Next", section: .edit, shortcuts: [Shortcut("g", cmd)], inCommandBar: false),
             KeyAction(id: "findPrevious", name: "Find Previous", section: .edit, shortcuts: [Shortcut("g", cmdShift)], inCommandBar: false),
@@ -293,9 +296,10 @@ final class KeyBindingRegistry {
             // Archive
             KeyAction(id: "goBack", name: "Go Back", section: .archive, shortcuts: [Shortcut("[", cmd), Shortcut(Shortcut.left, cmd)]),
             KeyAction(id: "goForward", name: "Go Forward", section: .archive, shortcuts: [Shortcut("]", cmd), Shortcut(Shortcut.right, cmd)]),
-            KeyAction(id: "viewArchive", name: "View History", section: .archive, shortcuts: [Shortcut("y", cmd)], triggers: ["archive", "history", "closed tabs"]),
+            // Arc: Archive ▸ View History ⌘Y, Chromium's History page for the space's profile (#590, HistoryPage).
+            KeyAction(id: HistoryPage.action, name: "View History", section: .archive, shortcuts: [Shortcut("y", cmd)], triggers: HistoryPage.triggers),
             // Arc: Archive ▸ View Archive…, Clear Archive.
-            KeyAction(id: "showArchive", name: "View Archive…", section: .archive, shortcuts: [], triggers: ["archive", "archived tabs"]),
+            KeyAction(id: "showArchive", name: "View Archive…", section: .archive, shortcuts: [], triggers: ["archive", "archived tabs", "closed tabs"]),
             KeyAction(id: "clearArchive", name: "Clear Archive", section: .archive, shortcuts: [], triggers: ["clear archive"], symbol: "trash"),
             // Window
             KeyAction(id: "openLibrary", name: "Open Library…", section: .window, shortcuts: [Shortcut("l", cmdShift)], triggers: ["library"]),

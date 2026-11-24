@@ -31,6 +31,6 @@ struct FaviconView: View {
                 .foregroundStyle(palette.textTertiary)
                 .frame(width: size, height: size)
         }
+        }
     }
-}
 }

@@ -8,6 +8,11 @@ keeps adding views; ventura-sync.yml runs this after each merge so they get the 
 - @Observable -> @Perceptible, @ObservationIgnored -> @PerceptionIgnored,
   @Bindable -> @Perception.Bindable, import Observation -> import Perception
 - two- and no-argument .onChange closures -> Ventura's one-argument form
+- Sonoma-only calls -> their stand-ins: withObservationTracking -> withPerceptionTracking,
+  CADisplayLink -> FrameTicker (startFrameTicker), CASpringAnimation(perceptualDuration:) ->
+  .perceptual(duration:), withAnimation(.snappy(duration:extraBounce: 0)) -> .easeOut,
+  yieldActivation + activate(from:) -> bringForward(yielding:), scrollIndicatorsFlash -> ...IfAvailable;
+  an .onChange closure's named old value becomes a capture of the value the body saw
 - in each type that touches observable state (an observable class by name, an
   @Environment(Model.self), a bindable, AppDelegate), wrap every `some View` body and helper,
   ForEach row closure and popover/sheet content in WithPerceptionTracking { }
@@ -88,7 +93,7 @@ OPENERS = [
     # ForEach row closures
     re.compile(r'\bForEach\b[^\n]*\{\s*(?:[\w(), ]+\s+in)?[ \t]*\n'),
     # presentation content
-    re.compile(r'\.(?:popover|sheet)\b[^\n]*\{[ \t]*\n'),
+    re.compile(r'\.(?:popover|sheet)\b(?=\s*\()[^\n]*\{[ \t]*\n'),
 ]
 
 
@@ -101,7 +106,7 @@ def wrap_one_liners(src):
     lines = src.split('\n')
     for li, line in enumerate(lines):
         mask = code_mask(line)
-        m = re.search(r'\bForEach\b|\.(?:popover|sheet)\b', mask)
+        m = re.search(r'\bForEach\b(?=\s*\()|\.(?:popover|sheet)\b(?=\s*\()', mask)
         if not m or 'WithPerceptionTracking' in line or not stateful(src, full_mask, offsets[li]):
             continue
         # the trailing closure: first '{' after the call's arguments close
@@ -211,25 +216,55 @@ def observable_types(files):
     return sorted(names)
 
 
+DISPLAY_LINK = (r'displayLink\(target: ([^\n]+?), selector: (#selector\([^\n]*?\))\)\n'
+                r'[ \t]*(?P=v)\.add\(to: \.main, forMode: \.common\)\n')
+
+
+def ventura_api(src):
+    """Sonoma APIs upstream keeps using, swapped for VenturaCompat.swift's stand-ins (or
+    Perception's), the way the port's hand edits did."""
+    src = re.sub(r'(?<![\w.])withObservationTracking\b', 'withPerceptionTracking', src)
+    src = re.sub(r'\bCASpringAnimation\(perceptualDuration:\s*', 'CASpringAnimation.perceptual(duration: ', src)
+    src = re.sub(r'withAnimation\(\.snappy\(duration: ([^,()]+), extraBounce: 0\)\)', r'withAnimation(.easeOut(duration: \1))', src)
+    # let l = displayLink(...); l.add(...); link = l  ->  link = startFrameTicker(...)
+    src = re.sub(r'^([ \t]*)let (?P<v>\w+) = ((?:[\w.]+\.)?)' + DISPLAY_LINK + r'[ \t]*([^\n=]+?) = (?P=v)\n',
+                 lambda m: f'{m.group(1)}{m.group(6)} = {m.group(3)}startFrameTicker(target: {m.group(4)}, selector: {m.group(5)})\n',
+                 src, flags=re.M)
+    # let link = displayLink(...); link.add(...)  ->  let link = startFrameTicker(...)
+    src = re.sub(r'^([ \t]*)let (?P<v>\w+) = ((?:[\w.]+\.)?)' + DISPLAY_LINK,
+                 lambda m: f'{m.group(1)}let {m.group(2)} = {m.group(3)}startFrameTicker(target: {m.group(4)}, selector: {m.group(5)})\n',
+                 src, flags=re.M)
+    src = re.sub(r'^([ \t]*)NSApp\.yieldActivation\(to: (\w+)\)\n[ \t]*\2\.activate\(from: \.current, options: \[\]\)\n',
+                 r'\1\2.bringForward(yielding: true)\n', src, flags=re.M)
+    src = re.sub(r'\.scrollIndicatorsFlash\(onAppear:', '.scrollIndicatorsFlashIfAvailable(onAppear:', src)
+    src = re.sub(r'\bCADisplayLink\?', '(any FrameTicker)?', src)
+    src = re.sub(r'\bCADisplayLink\b', 'any FrameTicker', src)
+    return src
+
+
 def transform(path):
     src = open(path).read()
+    if path != VENTURA_COMPAT:
+        src = ventura_api(src)
     src = re.sub(r'(?<![\w.])@Bindable\b', '@Perception.Bindable', src)
     src = re.sub(r'^import Observation\n', 'import Perception\n' if 'import Perception' not in src else '', src, flags=re.M)
     src = re.sub(r'@ObservationIgnored\b', '@PerceptionIgnored', src)
     src = re.sub(r'@Observable\b', '@Perceptible', src)
+    # A named old value: Ventura's closure gets only the new one, so capture the old as the body saw it.
+    src = re.sub(r'(\.onChange\(of:\s*([^{\n]*?)\)\s*\{\s*)(?!_\b)(\w+)\s*,\s*(_|\w+)\s+in\b', r'\1[\3 = \2] \4 in', src)
     src = re.sub(r'(\.onChange\(of:[^{\n]*\{\s*)(?:_|\w+)\s*,\s*(_|\w+)\s+in\b', r'\1\2 in', src)
     # Sonoma's no-argument closure: Ventura's always takes the new value.
-    src = re.sub(r'(\.onChange\(of:[^{\n]*\)\s*\{)(?!\s*(?:_|\w+)\s*(?:,|in\b))', r'\1 _ in', src)
+    src = re.sub(r'(\.onChange\(of:[^{\n]*\)\s*\{)(?!\s*(?:\[[^\]\n]*\]\s*)?(?:_|\w+)\s*(?:,|in\b))', r'\1 _ in', src)
     src = wrap_one_liners(src)
     src, _ = wrap_all(src, path)
-    if 'import Perception' not in src and re.search(r'WithPerceptionTracking|@Perception\.|@Perceptible|@PerceptionIgnored', src):
+    if 'import Perception' not in src and re.search(r'(?i)withPerceptionTracking|@Perception\.|@Perceptible|@PerceptionIgnored', src):
         src = 'import Perception\n' + src
     return src
 
 
 VENTURA_COMPAT = 'Sources/Cra/UI/VenturaCompat.swift'
 TRACKING_SHIM = 'Tests/Support/VenturaObservationTracking.swift'
-COMPAT_API = re.compile(r'\b(?:startFrameTicker|FrameTicker|roundedButtonBorder|presentationBackgroundIfAvailable|bringForward)\b'
+COMPAT_API = re.compile(r'\b(?:startFrameTicker|FrameTicker|roundedButtonBorder|presentationBackgroundIfAvailable|scrollIndicatorsFlashIfAvailable|bringForward)\b'
                         r'|CASpringAnimation\.perceptual\b')
 
 
@@ -248,6 +283,10 @@ def harness(path):
             sources.update(glob.glob(token))
     texts = [open(p).read() for p in sorted(sources)]
     if not any(re.search(r'^import Perception$', t, re.M) for t in texts):
+        # No Perception, but VenturaCompat's stand-ins still have to be compiled in.
+        if any(COMPAT_API.search(t) for t in texts) and VENTURA_COMPAT not in sources:
+            src = re.sub(r'(\$\{CRA_TEST_SWIFTC_FLAGS:-\}(?:[^\n]*\\\n)*?[^\n]*?) -o ',
+                         lambda m: m.group(1) + ' ' + VENTURA_COMPAT + ' -o ', src, count=1)
         return src
     if 'source scripts/perception-test-flags.sh' not in src:
         src = re.sub(r'^(cd "\$\(dirname "\$0"\)/\.\."\n)', r'\1source scripts/perception-test-flags.sh\n', src, count=1, flags=re.M)

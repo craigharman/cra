@@ -17,7 +17,7 @@ struct PerformancePane: View {
 
     var body: some View {
         WithPerceptionTracking {
-            @Perception.Bindable var store = store
+        @Perception.Bindable var store = store
         SettingsCardPane {
             Picker("", selection: $section) { ForEach(Section.allCases, id: \.self) { item in WithPerceptionTracking { Text(item.rawValue).tag(item) } } }
                 .pickerStyle(.segmented).labelsHidden().fixedSize()
@@ -37,7 +37,7 @@ struct PerformancePane: View {
                 try? await Task.sleep(for: .seconds(2))
             }
         }
-    }
+        }
     }
 
     private struct RefreshKey: Equatable { var open: Bool; var recording: Bool }
@@ -58,7 +58,7 @@ struct PerformancePane: View {
                 SettingsHeader("Findings").padding(.top, 20)
                 SettingsCard {
                     ForEach(Array(r.insights.enumerated()), id: \.element.id) { i, insight in
-                            WithPerceptionTracking {
+                        WithPerceptionTracking {
                         if i > 0 { SettingsCardDivider() }
                         SettingsCardRow {
                             HStack(alignment: .top, spacing: 8) {
@@ -71,10 +71,10 @@ struct PerformancePane: View {
                                 }
                             }
                         } trailing: { EmptyView() }
+                        }
                     }
                 }
             }
-                }
             let m = r.mainThread
             card("Main thread", [
                 ("Stalls of ¼ s or more", "\(m.freezes)"),
@@ -107,7 +107,7 @@ struct PerformancePane: View {
         } else {
             ProgressView().controlSize(.small).frame(maxWidth: .infinity).padding(.top, 24)
         }
-    }
+        }
     }
 
     private func tabRows(_ r: PerfReport) -> [(String, String)] {
@@ -129,17 +129,17 @@ struct PerformancePane: View {
             SettingsHeader(title).padding(.top, 20)
             SettingsCard {
                 ForEach(Array(rows.enumerated()), id: \.offset) { i, row in
-                        WithPerceptionTracking {
+                    WithPerceptionTracking {
                     if i > 0 { SettingsCardDivider() }
                     SettingsCardRow {
                         Text(row.0).font(.system(size: 13))
                     } trailing: {
                         Text(row.1).font(.system(size: 13).monospacedDigit()).foregroundStyle(.secondary)
                     }
+                    }
                 }
             }
         }
-    }
         }
     }
 
@@ -153,7 +153,7 @@ struct PerformancePane: View {
         } else {
             SettingsCard {
                 ForEach(Array(list.prefix(100).enumerated()), id: \.offset) { i, e in
-                        WithPerceptionTracking {
+                    WithPerceptionTracking {
                     if i > 0 { SettingsCardDivider() }
                     SettingsCardRow {
                         VStack(alignment: .leading, spacing: 2) {
@@ -165,10 +165,10 @@ struct PerformancePane: View {
                     } trailing: {
                         Text(e.time).font(.system(size: 11).monospacedDigit()).foregroundStyle(.secondary)
                     }
+                    }
                 }
             }
         }
-    }
         }
     }
 
@@ -218,7 +218,7 @@ struct PerformancePane: View {
         .padding(.top, 16)
         SettingsFootnote("Copy Summary never names a site. The recording lives in \(AppPaths.file("Perf").path.replacingOccurrences(of: NSHomeDirectory(), with: "~")) and stays under 2 MB.")
             .padding(.top, 4)
-    }
+        }
     }
 
     private func confirmClear() {

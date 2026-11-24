@@ -548,14 +548,18 @@ static bool g_httpsOnly = false;
 static NSInteger g_websiteAppearance = 0;
 static bool g_incognitoReady = false;
 
-/// Chrome's "Always use secure connections" (Settings ▸ Privacy in Cra).
+/// Chrome's "Always use secure connections" (Settings ▸ Privacy in Cra), in Balanced Mode as on the
+/// engine (profile_prefs.mm, GitHub #625): addresses on the user's own network load without the warning.
 static void ApplyHttpsOnly(CefRefPtr<CefRequestContext> context) {
     if (!context) return;
-    CefRefPtr<CefValue> value = CefValue::Create();
-    value->SetBool(g_httpsOnly);
-    CefString error;
-    if (!context->SetPreference("https_only_mode_enabled", value, error)) {
-        NSLog(@"CraCEF: https_only_mode_enabled: %s", error.ToString().c_str());
+    const std::pair<const char*, bool> prefs[] = {{"https_only_mode_enabled", false}, {"https_first_balanced_mode_enabled", g_httpsOnly}};
+    for (const auto& [name, on] : prefs) {
+        CefRefPtr<CefValue> value = CefValue::Create();
+        value->SetBool(on);
+        CefString error;
+        if (!context->SetPreference(name, value, error)) {
+            NSLog(@"CraCEF: %s: %s", name, error.ToString().c_str());
+        }
     }
 }
 
@@ -1649,16 +1653,7 @@ public:
         if (!o) return;
         [o.delegate browser:o didFinishLoadingURL:NSStringFromCef(frame->GetURL()) title:o.currentTitle
                  statusCode:httpStatusCode];
-        // Ask the page for its theme colour; the answer comes back as "theme:<css colour>".
-        RunPageScript(frame, "",
-            "(function(send){function probe(){try{var c='';var ms=document.querySelectorAll('meta[name=\"theme-color\"]');"
-            "for(var i=0;i<ms.length;i++){if(!ms[i].getAttribute('media')){c=ms[i].getAttribute('content')||'';if(c)break;}}"
-            "if(!c&&document.body){var b=getComputedStyle(document.body).backgroundColor;if(b&&b!=='rgba(0, 0, 0, 0)'&&b!=='transparent'){c=b;}}"
-            "if(!c){var h=getComputedStyle(document.documentElement).backgroundColor;if(h&&h!=='rgba(0, 0, 0, 0)'&&h!=='transparent'){c=h;}}"
-            "if(!c){c='rgb(255, 255, 255)';}"
-            "var d=document.createElement('div');d.style.color=c;document.body.appendChild(d);"
-            "var rgb=getComputedStyle(d).color;d.remove();send('theme:'+rgb);}catch(e){}}"
-            "probe();setTimeout(probe,1500);})");
+        // The toolbar takes the page's pixels, not its theme-color (ToolbarSampler, #629).
         RunPageScript(frame, "bg", kBackgroundProbe);
     }
 
@@ -1709,13 +1704,6 @@ public:
                 [o.delegate browser:o didReportBackgroundColor:hex];
             return;
         }
-        const std::string prefix = "theme:";
-        if (m.compare(0, prefix.size(), prefix) != 0) return;
-        CraBrowser* o = owner_;
-        if (!o) return;
-        std::string rgb = m.substr(prefix.size());  // "rgb(r, g, b)", "rgba(…)" or "none"
-        NSString* hex = rgb == "none" ? @"none" : HexFromCSSColor(rgb);
-        [o.delegate browser:o didReportThemeColor:hex];
     }
 
     void OnLoadError(CefRefPtr<CefBrowser> browser, CefRefPtr<CefFrame> frame, ErrorCode errorCode,
@@ -3002,6 +2990,7 @@ static BOOL g_makingSpare = NO;
 - (void)reloadIgnoringCache { if (_browser) _browser->ReloadIgnoreCache(); }
 - (void)stopLoading { if (_browser) _browser->StopLoad(); }
 - (void)exitFullscreen { if (_browser) _browser->GetHost()->ExitFullscreen(true); }
+- (BOOL)holdsEscapeKey { return NO; }
 
 - (NSArray<NSDictionary<NSString*, id>*>*)infoBars { return @[]; }  // Chrome draws its own bars in CEF's views
 - (void)infoBar:(NSInteger)identifier action:(NSString*)action {}
@@ -3136,6 +3125,7 @@ static BOOL g_makingSpare = NO;
     self.findGeneration = nil;
     if (_browser) _browser->GetHost()->StopFinding(clearSelection);
 }
+- (void)setBoostTint:(NSString *)tint {}
 - (void)setAudioMuted:(BOOL)muted {
     _audioMuted = muted;
     if (_browser) _browser->GetHost()->SetAudioMuted(muted);
@@ -3146,6 +3136,19 @@ static BOOL g_makingSpare = NO;
 // gap between two tracks doesn't blink the speaker.
 // CEF has no media session callback: the sidebar player follows the audible state (#411).
 - (BOOL)reportsMediaSession {
+    return NO;
+}
+
+// Tab sharing lives in Chrome's TabSharingUI, which CEF has no tab strip for: a CEF page is never marked.
+- (BOOL)isBeingShared {
+    return NO;
+}
+
+- (BOOL)canShareInstead {
+    return NO;
+}
+
+- (BOOL)shareInstead {
     return NO;
 }
 
@@ -3578,6 +3581,8 @@ static void MarkProfileExitedCleanly(NSString* profileDir) {
     if (g_incognitoContext && g_incognitoReady) ApplyWebsiteAppearance(g_incognitoContext);
 }
 + (NSInteger)websiteAppearance { return g_websiteAppearance; }
+// CEF's request-context preference is Cra's alone; only Cra's engine reports chrome://settings's Mode.
++ (void)setWebsiteAppearanceChangeHandler:(void (^)(NSInteger))handler {}
 + (void)setHttpsOnlyModeEnabled:(BOOL)enabled {
     if (enabled == g_httpsOnly) return;
     g_httpsOnly = enabled;
@@ -3728,6 +3733,13 @@ static void MarkProfileExitedCleanly(NSString* profileDir) {
 + (void)floatOverFullScreenSpaces:(NSWindow*)window { FloatOverFullScreenSpaces(window); }
 // CEF doesn't expose Chromium's password-field lock; cra://debug?secureInput= reads the system's on its own.
 + (BOOL)holdsSecureInput { return NO; }
++ (NSString*)pageHostBrowserViewReadout {
+  return @"no engine";
+}
++ (void)setPageHostBrowserViewsHidden:(BOOL)hidden {
+}
++ (void)reuseRendererInsideExitNotice {
+}
 + (NSString*)pageWindowsReadout {
     return [NSString stringWithFormat:@"shown=%ld away=%ld animated=%ld", (long)g_pageWindowsShown, (long)g_pageWindowsShownAway,
                                       (long)g_pageWindowsShownAnimated];

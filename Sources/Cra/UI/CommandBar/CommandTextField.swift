@@ -16,6 +16,16 @@ final class CommandTextField {
         field = Self.makeField(controller: controller, coordinator: coordinator)
     }
 
+    /// Arc's address panel (#663) types in 13 pt, the full bar in 18; the developer bar's panel in the bar's own
+    /// monospaced 12 pt (#663 follow-up).
+    func setCompact(_ compact: Bool, developer: Bool = false) {
+        let size: CGFloat = developer ? 12 : compact ? CGFloat(SidebarAddressPanel.fontSize) : 18
+        let font: NSFont = developer ? .monospacedSystemFont(ofSize: size, weight: .regular) : .systemFont(ofSize: size, weight: .medium)
+        guard field.font != font else { return }
+        field.font = font
+        field.placeholderAttributedString = Self.placeholder(controller.placeholder, size: size)
+    }
+
     func update() {
         Self.update(field, controller: controller, coordinator: coordinator)
         // A completion needs the field's editor, which exists once the field is first responder
@@ -45,9 +55,9 @@ final class CommandTextField {
         return field
     }
 
-    private static func placeholder(_ text: String) -> NSAttributedString {
+    private static func placeholder(_ text: String, size: CGFloat = 18) -> NSAttributedString {
         NSAttributedString(string: text, attributes: [
-            .font: NSFont.systemFont(ofSize: 18, weight: .medium),
+            .font: NSFont.systemFont(ofSize: size, weight: .medium),
             // Arc 1.172.1 live: the placeholder's ink peaks at (163,162,162).
             .foregroundColor: NSColor(white: 0.64, alpha: 1),
         ])
@@ -56,7 +66,7 @@ final class CommandTextField {
     private static func update(_ field: NSTextField, controller: CommandBarController, coordinator coord: Coordinator) {
         // Runs on every keystroke: rebuild the placeholder only when its text changes.
         if field.placeholderAttributedString?.string != controller.placeholder {
-            field.placeholderAttributedString = placeholder(controller.placeholder)
+            field.placeholderAttributedString = placeholder(controller.placeholder, size: field.font?.pointSize ?? 18)
         }
         if coord.appliedVersion != controller.fieldTextVersion {
             coord.appliedVersion = controller.fieldTextVersion
@@ -68,7 +78,7 @@ final class CommandTextField {
             DispatchQueue.main.async {
                 field.window?.makeFirstResponder(field)
                 guard let editor = field.currentEditor() else { return }
-                if selected { editor.selectAll(nil) } else { editor.selectedRange = NSRange(location: (field.stringValue as NSString).length, length: 0) }
+                if selected { editor.selectAllShowingStart() } else { editor.selectedRange = NSRange(location: (field.stringValue as NSString).length, length: 0) }
             }
         }
         if coord.appliedPreview != controller.previewVersion {

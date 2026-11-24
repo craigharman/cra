@@ -33,9 +33,15 @@ final class ExtensionStore {
         /// Profile folders where it is turned off in chrome://extensions. Chromium keeps it off
         /// there across launches, also when --load-extension loads the folder again.
         var disabledProfiles: Set<String> = []
+        /// Profile folders that allow it in incognito (chrome://extensions ▸ Allow in Incognito, GitHub #620).
+        var incognitoProfiles: Set<String> = []
 
         func isInstalled(inProfile name: String) -> Bool { profiles?.contains(name) ?? true }
         func isEnabled(inProfile name: String) -> Bool { isInstalled(inProfile: name) && !disabledProfiles.contains(name) }
+        /// Turned on in the profile and, in an incognito window, allowed in incognito there.
+        func isEnabled(inProfile name: String, incognito: Bool) -> Bool {
+            isEnabled(inProfile: name) && ExtensionIncognito.lists(allowedInIncognito: incognitoProfiles.contains(name), incognito: incognito)
+        }
     }
 
     /// The menu bar's Extensions menu and the toolbar read this one.
@@ -80,6 +86,9 @@ final class ExtensionStore {
     nonisolated static func importExtension(_ ext: ImportableExtension, profiles: Set<String>?) throws {
         let existed = isInstalled(id: ext.id)
         try importExtension(ext)
+        // Imported again: the store may take it now (#491).
+        var refusals = loadRefusals()
+        if refusals.forget(folder: ext.id) { saveRefusals(refusals) }
         var scopes = loadProfiles()
         scopes.add(folder: ext.id, profiles: profiles, folderExisted: existed)
         try saveProfiles(scopes)
@@ -298,6 +307,9 @@ final class ExtensionStore {
         }
     }
 
+    /// Set once a quit is confirmed: an install it cuts short says nothing about the store (#491).
+    @PerceptionIgnored var isQuitting = false
+
     /// Extension IDs asked of the store in a profile this session ("<profile>/<id>"), each once.
     @PerceptionIgnored private var webStoreAsked: Set<String> = []
 
@@ -306,16 +318,31 @@ final class ExtensionStore {
     /// The store's version may not ask for more permissions than the copy the person picked.
     func installFromWebStore(using browser: CraBrowser, profile: String) {
         let scopes = Self.loadProfiles()
+        let refused = Self.loadRefusals()
         let live = Self.extensionSettings(inProfile: profile)
         for copy in Self.webStoreCopies() where !webStoreAsked.contains("\(profile)/\(copy.folder)") {
+            if refused.isRefused(folder: copy.folder, inProfile: profile), scopes.loads(folder: copy.folder, inProfile: profile),
+               !WebStoreInstalls.isStoreInstall(settings: live[copy.folder] as? [String: Any]) {
+                webStoreAsked.insert("\(profile)/\(copy.folder)")
+                CraLog.note("extension \(copy.folder): the Web Store refused it in \(profile) before; it stays the imported copy there")
+                continue
+            }
             guard !WebStoreInstalls.pendingProfiles(folder: copy.folder, extensionID: copy.folder, scopes: scopes,
-                                                    profiles: [profile], settings: { _ in live }).isEmpty,
+                                                    profiles: [profile], settings: { _ in live }, refused: refused).isEmpty,
                   let params = try? JSONSerialization.data(withJSONObject: ["id": copy.folder, "manifest": copy.manifest]) else { continue }
             webStoreAsked.insert("\(profile)/\(copy.folder)")
             CraLog.note("extension \(copy.folder): installing from the Web Store in \(profile)")
             browser.sendDevToolsMethod("Cra.installFromWebStore", params: String(decoding: params, as: UTF8.self)) { [weak self] _, error in
                 DispatchQueue.main.async {
-                    if let error { CraLog.note("extension \(copy.folder): Web Store install in \(profile) failed (\(error)); it keeps loading from its folder") }
+                    if let error {
+                        CraLog.note("extension \(copy.folder): Web Store install in \(profile) failed (\(error)); it keeps loading from its folder")
+                        // The store's no stands: later launches don't download it again (#491). A quit cutting
+                        // the install short is no answer.
+                        if self?.isQuitting != true {
+                            var refusals = Self.loadRefusals()
+                            if refusals.refuse(folder: copy.folder, inProfile: profile) { Self.saveRefusals(refusals) }
+                        }
+                    }
                     self?.reload()
                 }
             }
@@ -325,6 +352,25 @@ final class ExtensionStore {
     // MARK: Profiles of the Extensions/ folders (GitHub #131)
 
     nonisolated private static var profilesFile: URL { AppPaths.file("extension-profiles.json") }
+
+    // MARK: Store refusals (GitHub #491)
+
+    nonisolated private static var refusalsFile: URL { AppPaths.file("web-store-refused.json") }
+
+    nonisolated static func loadRefusals() -> WebStoreRefusals {
+        guard let data = try? Data(contentsOf: refusalsFile) else { return WebStoreRefusals() }
+        return (try? JSONDecoder().decode(WebStoreRefusals.self, from: data)) ?? WebStoreRefusals()
+    }
+
+    nonisolated private static func saveRefusals(_ refusals: WebStoreRefusals) {
+        do {
+            if refusals.profiles.isEmpty {
+                if FileManager.default.fileExists(atPath: refusalsFile.path) { try FileManager.default.removeItem(at: refusalsFile) }
+            } else {
+                try JSONEncoder().encode(refusals).write(to: refusalsFile, options: .atomic)
+            }
+        } catch { CraLog.note("extension store refusals: could not save (\(error.localizedDescription))") }
+    }
 
     nonisolated static func loadProfiles() -> ExtensionProfiles {
         guard let data = try? Data(contentsOf: profilesFile) else { return ExtensionProfiles() }
@@ -362,6 +408,7 @@ final class ExtensionStore {
         dropRemovedCopies(profiles: profiles, live: live)
         let names = (try? fm.contentsOfDirectory(atPath: ExtensionStore.directory.path)) ?? []
         let disabled = settings.mapValues(ExtensionImporter.disabledIDs(settings:))
+        let incognito = settings.mapValues(ExtensionIncognito.allowedIDs(settings:))
         let scopes = Self.loadProfiles()
         var list = names.sorted().compactMap { name -> Entry? in
             guard var entry = Self.entry(id: name, folder: ExtensionStore.directory.appendingPathComponent(name, isDirectory: true),
@@ -378,6 +425,7 @@ final class ExtensionStore {
                 if entry.profiles?.isEmpty == true { return nil }
             }
             entry.disabledProfiles = Set(profiles.filter { disabled[$0]?.contains(entry.extensionID) == true })
+            entry.incognitoProfiles = Set(profiles.filter { incognito[$0]?.contains(entry.extensionID) == true })
             return entry
         }
         let loaded = Set(list.map(\.extensionID))
@@ -391,6 +439,7 @@ final class ExtensionStore {
                     guard let i = list.firstIndex(where: { $0.extensionID == e.id }), list[i].profiles?.contains(profile) == false else { continue }
                     list[i].profiles?.insert(profile)
                     if !e.isEnabled { list[i].disabledProfiles.insert(profile) }
+                    if incognito[profile]?.contains(e.id) == true { list[i].incognitoProfiles.insert(profile) }
                     continue
                 }
                 var i = managed.firstIndex(where: { $0.extensionID == e.id })
@@ -403,6 +452,7 @@ final class ExtensionStore {
                 guard let i else { continue }
                 managed[i].profiles?.insert(profile)
                 if !e.isEnabled { managed[i].disabledProfiles.insert(profile) }
+                if incognito[profile]?.contains(e.id) == true { managed[i].incognitoProfiles.insert(profile) }
             }
         }
         let next = list + managed.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
@@ -452,8 +502,11 @@ final class ExtensionStore {
 
     /// The extensions a page in this Chromium profile folder can run; running another
     /// profile's extension there, or one turned off there, crashes Chromium. Arc's toolbar and
-    /// Site Control Center leave turned-off extensions out (Chrome's toolbar model).
-    func entries(inProfile name: String) -> [Entry] { entries.filter { $0.isEnabled(inProfile: name) } }
+    /// Site Control Center leave turned-off extensions out (Chrome's toolbar model), and an incognito
+    /// window the ones its profile doesn't allow in incognito (#620).
+    func entries(inProfile name: String, incognito: Bool = false) -> [Entry] {
+        entries.filter { $0.isEnabled(inProfile: name, incognito: incognito) }
+    }
 
     // MARK: Installed, turned on and off in chrome://extensions (GitHub #41, #43)
 

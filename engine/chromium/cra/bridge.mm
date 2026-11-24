@@ -71,6 +71,8 @@
 #include "chrome/browser/permissions/system/system_permission_settings.h"
 #include "chrome/browser/tab_group_sync/tab_group_sync_service_factory.h"
 #include "chrome/browser/profiles/profile.h"
+#include "chrome/browser/ui/exclusive_access/exclusive_access_manager.h"
+#include "chrome/browser/ui/exclusive_access/keyboard_lock_controller.h"
 #include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/browser/ui/browser_tabstrip.h"
 #include "chrome/browser/ui/browser_window/public/browser_collection_observer.h"
@@ -103,10 +105,17 @@
 #include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/render_widget_host.h"
 #include "content/public/browser/render_widget_host_view.h"
+#include "content/public/browser/child_process_termination_info.h"
+#include "content/public/browser/render_process_host.h"
+#include "content/public/browser/render_process_host_observer.h"
+#include "content/public/browser/site_instance.h"
+#include "content/public/common/result_codes.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/browser/web_contents_observer.h"
 #include "components/blocked_content/popup_blocker_tab_helper.h"
 #include "chrome/browser/ui/tabs/tab_muted_utils.h"
+#include "chrome/browser/ui/tab_sharing/tab_sharing_infobar_delegate.h"
+#include "chrome/browser/ui/views/tab_sharing/tab_capture_contents_border_helper.h"
 #include "components/infobars/content/content_infobar_manager.h"
 #include "components/permissions/cra_permission_tabs.h"
 #include "content/public/browser/cra_live_connection.h"
@@ -141,6 +150,11 @@
 #include "ui/views/controls/webview/cra_hosted_page.h"
 #include "ui/compositor/compositor.h"
 #include "ui/views/widget/widget.h"
+#include "chrome/browser/ui/browser_element_identifiers.h"
+#include "chrome/browser/ui/interaction/browser_elements.h"
+#include "ui/base/interaction/element_tracker.h"
+#include "ui/views/view.h"
+#include "ui/views/view_class_properties.h"
 #include "ui/base/page_transition_types.h"
 #include "url/gurl.h"
 #include "url/origin.h"
@@ -149,6 +163,8 @@ extern "C" int CraEngineMain(int argc, const char** argv);
 
 @interface CraBrowser ()
 - (void)adoptContents:(content::WebContents*)contents;
+/// The page's Boost colorize for its WebPreferences (#602), empty for none.
+- (std::string)boostTintForPrefs;
 - (void)contentsCreated:(content::WebContents*)contents;
 - (void)pageStartedNavigation:(content::NavigationHandle*)handle;
 - (void)pageFinishedNavigation:(content::NavigationHandle*)handle;
@@ -160,8 +176,12 @@ extern "C" int CraEngineMain(int argc, const char** argv);
 - (void)pageMediaSession:(CraMediaSessionState)state controllable:(BOOL)controllable;
 - (void)pageFocused;
 - (void)pageDestroyed;
-- (void)pageThemeColor;
 - (void)pageBackgroundColor;
+- (void)applyPageCanvasTo:(content::RenderWidgetHostView*)view;
+- (void)applyCanvasBaseTo:(content::WebContents*)contents;
+- (void)applySpareCanvas;
+- (void)refreshCanvasBase:(content::WebContents*)contents;
+- (void)pageFirstPaint;
 - (void)pageFavicon:(NSImage*)image url:(NSString*)url;
 - (void)pageFindResult;
 - (void)pagePictureInPicture:(BOOL)active;
@@ -173,6 +193,7 @@ extern "C" int CraEngineMain(int argc, const char** argv);
 - (void)pageSoundPlaying:(BOOL)playing;
 - (void)dropSpareContents;
 - (void)pageInfoBarsChanged;
+- (void)pageTabSharingChanged;
 - (void)pagePictureInPictureTime;
 @property(nonatomic) BOOL inPageFullscreen;
 - (void)devToolsOpened:(BrowserWindowInterface*)devtools;
@@ -283,6 +304,12 @@ CraBrowser* BrowserFor(content::WebContents* contents) {
   return it == PagesByContents().end() ? nil : it->second;
 }
 
+// The Boost colours of a page of Cra's, every colour it draws but its images (#602; cra_engine_hooks.h).
+std::string BoostTint(content::WebContents* contents) {
+  CraBrowser* page = BrowserFor(contents);
+  return page ? [page boostTintForPrefs] : std::string();
+}
+
 void Later(base::OnceClosure task) {
   base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(FROM_HERE, std::move(task));
 }
@@ -323,6 +350,15 @@ void RunInFrames(content::WebContents* contents, NSString* script, bool gesture)
   });
 }
 
+// Whether pages see a dark Mac: View ▸ Appearance, or the Mac's own on Automatic.
+BOOL PagesAreDark() {
+  NSInteger mode = cra::WebsiteAppearance();
+  return mode == 2 || (mode == 0 && [NSApp.effectiveAppearance
+                                        bestMatchFromAppearancesWithNames:@[ NSAppearanceNameAqua,
+                                                                             NSAppearanceNameDarkAqua ]] ==
+                                        NSAppearanceNameDarkAqua);
+}
+
 // "#RRGGBB", or "" for no colour.
 NSString* Hex(std::optional<SkColor> color) {
   if (!color) {
@@ -340,6 +376,7 @@ class PageObserver : public content::WebContentsObserver,
   PageObserver(content::WebContents* contents, CraBrowser* owner)
       : content::WebContentsObserver(contents), owner_(owner) {
     WatchInfoBars();
+    WatchTabCapture();
     if (auto* favicons = favicon::ContentFaviconDriver::FromWebContents(contents)) {
       favicons->AddObserver(this);
       favicons_ = favicons;
@@ -377,7 +414,6 @@ class PageObserver : public content::WebContentsObserver,
   void OnFindResultAvailable(content::WebContents* contents) override { [owner_ pageFindResult]; }
   void OnFindTabHelperDestroyed(find_in_page::FindTabHelper* helper) override { find_ = nullptr; }
 
-  void DidChangeThemeColor() override { [owner_ pageThemeColor]; }
   void DidOpenRequestedURL(content::WebContents* new_contents,
                            content::RenderFrameHost* source,
                            const GURL& url,
@@ -400,6 +436,8 @@ class PageObserver : public content::WebContentsObserver,
 
   // "Aw, Snap!" and "Page Unresponsive", for Cra's performance recorder (GitHub #91).
   void PrimaryMainFrameRenderProcessGone(base::TerminationStatus status) override {
+    // The page's next renderer (a tab slept by discarding, then shown again) starts on Arc's canvas too (#712).
+    [owner_ applyCanvasBaseTo:web_contents()];
     const char* what = "unknown";
     switch (status) {
       case base::TERMINATION_STATUS_ABNORMAL_TERMINATION:
@@ -443,9 +481,23 @@ class PageObserver : public content::WebContentsObserver,
     }
   }
   void OnBackgroundColorChanged() override { [owner_ pageBackgroundColor]; }
+  // A main frame's new view (a new page, or a site that moves to another process) shows Arc's canvas until its
+  // first frame, not Chromium's white or Chrome's grey.
+  void RenderFrameCreated(content::RenderFrameHost* frame) override {
+    if (!frame->GetParent()) {
+      [owner_ applyPageCanvasTo:frame->GetView()];
+    }
+  }
+  void RenderFrameHostChanged(content::RenderFrameHost* old_host, content::RenderFrameHost* new_host) override {
+    if (new_host && !new_host->GetParent()) {
+      [owner_ applyPageCanvasTo:new_host->GetView()];
+    }
+  }
+  void RenderViewReady() override { [owner_ applyPageCanvasTo:web_contents()->GetRenderWidgetHostView()]; }
 
   void DidStartNavigation(content::NavigationHandle* handle) override {
     WatchInfoBars();
+    WatchTabCapture();
     if (handle->IsInPrimaryMainFrame() && !handle->IsSameDocument()) {
       [owner_ pageStartedNavigation:handle];
     }
@@ -456,6 +508,7 @@ class PageObserver : public content::WebContentsObserver,
     }
   }
   void DidStartLoading() override { [owner_ pageLoadingChanged]; }
+  void DidFirstVisuallyNonEmptyPaint() override { [owner_ pageFirstPaint]; }
   void DidStopLoading() override { [owner_ pageLoadingChanged]; }
   void LoadProgressChanged(double progress) override { [owner_ pageProgress:progress]; }
   void DidFinishLoad(content::RenderFrameHost* frame, const GURL& url) override {
@@ -500,13 +553,38 @@ class PageObserver : public content::WebContentsObserver,
     manager->RemoveObserver(this);
     infobars_ = nullptr;
   }
+
+  // The tab a call shares (TabSharingUIViews tells the shared tab's TabCaptureContentsBorderHelper, which Chrome
+  // makes with the tab's features): Arc rings it in yellow. Chrome's blue border would go in its never-shown window.
+  // A page that moves to another Browser gets a new helper, so the subscription follows the current one.
+  void WatchTabCapture() {
+    auto* helper = TabCaptureContentsBorderHelper::FromWebContents(web_contents());
+    uintptr_t id = reinterpret_cast<uintptr_t>(helper);
+    if (!helper || id == capture_helper_) {
+      return;
+    }
+    capture_helper_ = id;
+    // Unretained: the subscription is this observer's, and ends with it.
+    capture_subscription_ =
+        helper->AddOnTabCaptureChangeCallback(base::BindRepeating(&PageObserver::TabCaptureChanged, base::Unretained(this)));
+    if (helper->IsTabCapturing()) {
+      [owner_ pageTabSharingChanged];
+    }
+  }
+  void TabCaptureChanged(bool border_shown) { [owner_ pageTabSharingChanged]; }
+
+ private:
+  // The helper subscribed to, by address only: it belongs to the tab's features and may go first.
+  uintptr_t capture_helper_ = 0;
+  base::CallbackListSubscription capture_subscription_;
 };
 
 // A Browser's window that holds Cra's pages: never seen, never clicked, never captured, never key or main (keys
 // would go to a window with nothing in it). Chrome still anchors bubbles to it (an extension's popup), which Cra's
 // app finds as a child of a page window (ExtensionPopupCandidate) and frames under its own button.
-// The windows MakeHostWindow made; Chrome's window class answers NO for them (swapped once, as Cra's app does for
-// CEF's page windows in EmbeddedPages: the window's own class may be a KVO subclass, so it isn't replaced).
+// The windows MakeHostWindow made, and the unseen stray windows (StrayWindows); Chrome's window class answers NO for
+// them (swapped once, as Cra's app does for CEF's page windows in EmbeddedPages: the window's own class may be a KVO
+// subclass, so it isn't replaced).
 NSHashTable<NSWindow*>* g_host_windows = nil;
 
 // Where and how pages and Chrome's windows for them came on screen: cra://debug?pageWindows= (#354), as the CEF
@@ -588,16 +666,13 @@ void NoteChromeWindowShown(NSWindow* window) {
   }
 }
 
-void MakeHostWindow(NSWindow* window) {
+// A Chrome window nobody sees never becomes key or main: keys would go to a window with nothing in it on screen.
+// Nor is it a row of the Window menu, which the Dock icon's menu lists too: it stays ordered in at alpha 0, titled
+// after its active page, and one browser window showed there twice (scenario dock-menu-windows).
+void NeverKeyOrMain(NSWindow* window) {
   if (!window) {
     return;
   }
-  PlaceChromeWindow(window);
-  NoteChromeWindowShown(window);
-  window.alphaValue = 0;
-  window.ignoresMouseEvents = YES;
-  window.sharingType = NSWindowSharingNone;
-  NeverFullScreen(window);
   if (!g_host_windows) {
     g_host_windows = [NSHashTable weakObjectsHashTable];
   }
@@ -620,6 +695,20 @@ void MakeHostWindow(NSWindow* window) {
     }
   }
   [g_host_windows addObject:window];
+  window.excludedFromWindowsMenu = YES;
+}
+
+void MakeHostWindow(NSWindow* window) {
+  if (!window) {
+    return;
+  }
+  PlaceChromeWindow(window);
+  NoteChromeWindowShown(window);
+  window.alphaValue = 0;
+  window.ignoresMouseEvents = YES;
+  window.sharingType = NSWindowSharingNone;
+  NeverFullScreen(window);
+  NeverKeyOrMain(window);
 }
 
 // The DevTools frontend of a page of Cra's: the panel it shows, on load and on every switch, so ⌥⌘J and Network
@@ -1067,6 +1156,30 @@ int PageIsFullscreen(const content::WebContents* contents) {
   return browser ? (browser.inPageFullscreen ? 1 : 0) : -1;
 }
 
+// Whether a page of Cra's is in the window the user is in (cra_engine_hooks.h, g_page_window_active).
+int PageWindowActive(content::WebContents* contents) {
+  if (!BrowserFor(contents)) {
+    return -1;
+  }
+  NSWindow* window = contents->GetNativeView().GetNativeNSView().window;
+  return NSApp.isActive && window.isKeyWindow ? 1 : 0;
+}
+
+// Chrome's exclusive-access notice for a page (cra_engine_hooks.h, g_exclusive_access_notice). Chrome's types
+// are CraExclusiveAccessNotice's values.
+bool ExclusiveAccessNotice(content::WebContents* contents, int type, bool force_update) {
+  CraBrowser* browser = contents ? BrowserFor(contents) : nil;
+  if (!browser) {
+    return false;
+  }
+  if ([browser.delegate respondsToSelector:@selector(browser:exclusiveAccessNotice:force:)]) {
+    [browser.delegate browser:browser
+        exclusiveAccessNotice:static_cast<CraExclusiveAccessNotice>(type)
+                        force:force_update];
+  }
+  return true;
+}
+
 // The link under the pointer, for Cra's status line ("" when none).
 bool TargetURL(content::WebContents* contents, const GURL& url) {
   CraBrowser* browser = BrowserFor(contents);
@@ -1392,8 +1505,9 @@ bool IsHost(BrowserWindowInterface* browser) {
 
 // Chrome windows Cra didn't make (the CEF bridge's stray page handling): a normal one, which Chrome opens for an
 // extension's windows.create or a welcome page after an extension loads, is never shown; its page becomes a
-// Cra tab through the app's stray page handler and the window closes. A popup one (windows.create type
-// popup) stays Chrome's window, as in Arc.
+// Cra tab through the app's stray page handler and the window closes. One with only a blank page (an extension's
+// windows.create({url: "about:blank"}), to fill later) has nothing to adopt and stays, unseen, so the extension's
+// window id keeps working (GitHub #578). A popup one (windows.create type popup) stays Chrome's window, as in Arc.
 class StrayWindows : public BrowserCollectionObserver, public TabStripModelObserver {
  public:
   void Start() { observation_.Observe(GlobalBrowserCollection::GetInstance()); }
@@ -1435,6 +1549,9 @@ class StrayWindows : public BrowserCollectionObserver, public TabStripModelObser
     window.ignoresMouseEvents = YES;
     window.collectionBehavior = (window.collectionBehavior & ~NSWindowCollectionBehaviorFullScreenPrimary) |
                                 NSWindowCollectionBehaviorFullScreenAuxiliary | NSWindowCollectionBehaviorMoveToActiveSpace;
+    // Nor key or main: windows.create shows it with makeKeyAndOrderFront, and one that stays (nothing to adopt)
+    // would keep the keys from Cra's own window.
+    NeverKeyOrMain(window);
     browser->GetTabStripModel()->AddObserver(this);
     Later(base::BindOnce(&StrayWindows::TakePages, base::Unretained(this), browser->GetWeakPtr()));
   }
@@ -1464,6 +1581,7 @@ class StrayWindows : public BrowserCollectionObserver, public TabStripModelObser
       // Not a page of Cra's (an extension's background page, say): Chrome's own DevTools window.
       NSWindow* window = browser->GetWindow()->GetNativeWindow().GetNativeNSWindow();
       [g_host_windows removeObject:window];
+      window.excludedFromWindowsMenu = NO;
       window.sharingType = NSWindowSharingReadOnly;
       window.alphaValue = 1;
       window.ignoresMouseEvents = NO;
@@ -1482,11 +1600,16 @@ class StrayWindows : public BrowserCollectionObserver, public TabStripModelObser
     }
     TabStripModel* tabs = browser->GetTabStripModel();
     NSString* profile = ProfileFolder(browser->GetProfile());
+    bool blank_only = true;
     for (int i = 0; i < tabs->count(); ++i) {
       std::string url = tabs->GetWebContentsAt(i)->GetVisibleURL().spec();
+      // A blank page: what an extension's windows.create({url: "about:blank"}) starts with, to fill it later.
+      if (url.empty() || url == url::kAboutBlankURL) {
+        continue;
+      }
+      blank_only = false;
       // Chrome's own empty tab (after a Web Store install): nobody asked for it.
-      if (url.empty() || url == url::kAboutBlankURL || base::StartsWith(url, "chrome://newtab") ||
-          base::StartsWith(url, "chrome://new-tab-page")) {
+      if (base::StartsWith(url, "chrome://newtab") || base::StartsWith(url, "chrome://new-tab-page")) {
         continue;
       }
       if (g_stray_page_handler) {
@@ -1494,6 +1617,12 @@ class StrayWindows : public BrowserCollectionObserver, public TabStripModelObser
       }
     }
     tabs->RemoveObserver(this);
+    // Only blank pages: the window stays, unseen, for the extension that made it, as the CEF bridge kept it (GitHub
+    // #578). Closed, the id windows.create gave back named no window: windows.get, tabs.query and tabs.create on it
+    // all failed, and windows.getAll never listed it.
+    if (blank_only && tabs->count() > 0) {
+      return;
+    }
     browser->GetWindow()->Close();
   }
 
@@ -1660,6 +1789,8 @@ void StopBridge() {
 // The last click (left mouse-up) or Return in any window, for the link Chromium opens a moment after it: where it
 // landed and the keys held (the CEF bridge's CraNoteLastPress). Set in -[CraApplication sendEvent:].
 NSWindow* __weak g_last_press_window = nil;
+// The page that took the focus last (pageFocused).
+CraBrowser* __weak g_last_focused_page = nil;
 NSView* __weak g_last_press_view = nil;
 NSEventModifierFlags g_last_press_modifiers = 0;
 NSTimeInterval g_last_press_time = -1;
@@ -1840,7 +1971,10 @@ void RunReadyBlocks() {
   g_page_is_fullscreen = &PageIsFullscreen;
   g_target_url = &TargetURL;
   g_is_cra_page = &IsCraPage;
+  g_page_window_active = &PageWindowActive;
+  g_exclusive_access_notice = &ExclusiveAccessNotice;
   g_block_request = &BlockRequest;
+  g_boost_tint = &BoostTint;
   g_page_menu_built = &BuildArcMenu;
   g_page_menu_command = &PageMenuCommand;
   g_page_menu_show = &PageMenuShow;
@@ -1978,6 +2112,8 @@ bool HandleDebugMethod(content::WebContents* contents,
 
 @implementation CraBrowser {
   NSView* _container;
+  // The page's empty document draws in Arc's canvas colour until it first draws something of its own (#712).
+  BOOL _canvasBase;
   raw_ptr<content::WebContents> _contents;
   std::unique_ptr<PageObserver> _observer;
   std::unique_ptr<DevToolsFrontendObserver> _devToolsFrontend;
@@ -1992,6 +2128,8 @@ bool HandleDebugMethod(content::WebContents* contents,
   NSString* _pendingURL;
   BOOL _waitingForPopup;
   BOOL _audioMuted;
+  // A Boost's colorize, Arc's 6 comma-separated numbers; empty for none (#602).
+  std::string _boostTint;
   // The app's find session (AskOnPage.FindRequest): every result Chrome reports is tagged with it. Nil
   // after -stopFinding:, so a late result of a stopped search reaches nobody.
   NSUUID* _findGeneration;
@@ -2076,7 +2214,9 @@ bool HandleDebugMethod(content::WebContents* contents,
   _delegate = delegate;
   _pendingHistory = url && !incognito && [history[@"history"] isKindOfClass:NSString.class] ? [history copy] : nil;
   _isIncognito = incognito;
-  _profilePath = incognito ? nil : [profilePath copy];
+  // An incognito page keeps its profile's folder: it loads in that profile's off-the-record one, as each
+  // Chrome profile has its own incognito (GitHub #620). Without one it is Default's, as before.
+  _profilePath = [profilePath copy];
   _container = [[CraPageContainerView alloc] initWithFrame:frame];
   _container.wantsLayer = YES;
   _container.autoresizesSubviews = YES;
@@ -2111,6 +2251,11 @@ bool HandleDebugMethod(content::WebContents* contents,
   return self;
 }
 
+// Whether the app wants this page to start hidden: a tab opened behind the page in front (#552).
+- (BOOL)startsHidden {
+  return [_delegate respondsToSelector:@selector(browserStartsHidden:)] && [_delegate browserStartsHidden:self];
+}
+
 - (void)createPageInProfile:(Profile*)profile {
   // Quitting: Chrome is closing every Browser, and the app may still ask for a page as tabs lose theirs.
   if (_isClosed || g_quitting) {
@@ -2119,16 +2264,23 @@ bool HandleDebugMethod(content::WebContents* contents,
   if (_isIncognito) {
     profile = profile->GetPrimaryOTRProfile(/*create_if_needed=*/true);
   }
+  // Until a page is first shown, Chromium keeps the visibility it was made with, whatever Cra's container
+  // does. A tab opened behind the page in front starts hidden, so its video waits until it is shown (#552);
+  // every other page starts shown. A spare is made shown: the tab that takes it asks (takeSpareWithURL:).
+  content::WebContents::CreateParams params(profile);
+  params.initially_hidden = !_isSpare && [self startsHidden];
   if (_isSpare) {
     // Made now, while nothing waits on it; it goes in a tab strip when a tab takes it (takeSpareWithURL:).
     _spareProfile = profile;
-    _spareContents = content::WebContents::Create(content::WebContents::CreateParams(profile));
+    _spareContents = content::WebContents::Create(params);
+    [self applySpareCanvas];
     [SparePages() addObject:self];
     // Made: a tab can take it (SparePages.take), as the CEF bridge reports a spare once its browser exists.
     _isCreated = YES;
     return;
   }
-  std::unique_ptr<content::WebContents> made = content::WebContents::Create(content::WebContents::CreateParams(profile));
+  std::unique_ptr<content::WebContents> made = content::WebContents::Create(params);
+  [self applyCanvasBaseTo:made.get()];
   if (_sidePanel) {
     extensions::SetViewType(made.get(), extensions::mojom::ViewType::kExtensionSidePanel);
   }
@@ -2245,6 +2397,7 @@ bool HandleDebugMethod(content::WebContents* contents,
   // pages never attach there (cra_hosted_page.h), so Cra unhides it: the page is shown and hidden with
   // Cra's container. Left hidden, such a tab stayed black whenever it was shown (0.1.44).
   page.hidden = NO;
+  [self applyPageCanvasTo:contents->GetRenderWidgetHostView()];
   [self installDocumentStartScripts];
   __weak CraBrowser* weakSelf = self;
   cra::WatchMediaSession(contents, ^(NSInteger state, bool controllable) {
@@ -2301,7 +2454,15 @@ bool HandleDebugMethod(content::WebContents* contents,
   }
 }
 
+// A page being torn down (~WebContentsImpl) ends its unfinished navigation from FrameTree::Shutdown, after its view's
+// widget let go of the page (DetachDelegate). That is no finished navigation and no end of loading for the tab: the
+// app took it for a page that had loaded, and the toolbar's colour (#629) took a screenshot of it, which ended in
+// VisibleTimeRequestTrigger::TakeRequest on the page that was gone (crash-page-closed-while-loading). Nothing about
+// such a page reaches the app; browserDidClose follows.
 - (void)pageFinishedNavigation:(content::NavigationHandle*)handle {
+  if (_contents && _contents->IsBeingDestroyed()) {
+    return;
+  }
   if (handle->HasCommitted()) {
     if (!handle->IsSameDocument() && !_hasCommittedLoad) {
       _hasCommittedLoad = YES;
@@ -2322,7 +2483,7 @@ bool HandleDebugMethod(content::WebContents* contents,
 }
 
 - (void)pageLoadingChanged {
-  if (!_contents) {
+  if (!_contents || _contents->IsBeingDestroyed()) {
     return;
   }
   content::NavigationController& history = _contents->GetController();
@@ -2429,6 +2590,7 @@ bool HandleDebugMethod(content::WebContents* contents,
 }
 
 // Chrome's bars changed: told once the manager is done changing (a bar's press removes it from inside the call).
+// A call's tab sharing bars come and go with it, so the sharing state is told too.
 - (void)pageInfoBarsChanged {
   __weak CraBrowser* weakSelf = self;
   dispatch_async(dispatch_get_main_queue(), ^{
@@ -2437,6 +2599,57 @@ bool HandleDebugMethod(content::WebContents* contents,
       [page.delegate browser:page didChangeInfoBars:page.infoBars];
     }
   });
+  [self pageTabSharingChanged];
+}
+
+// Told once Chrome is done changing: TabSharingUIViews swaps every tab's bar while it switches the shared tab.
+- (void)pageTabSharingChanged {
+  __weak CraBrowser* weakSelf = self;
+  dispatch_async(dispatch_get_main_queue(), ^{
+    CraBrowser* page = weakSelf;
+    if (page && [page.delegate respondsToSelector:@selector(browserDidChangeTabSharing:)]) {
+      [page.delegate browserDidChangeTabSharing:page];
+    }
+  });
+}
+
+- (BOOL)isBeingShared {
+  auto* helper = _contents ? TabCaptureContentsBorderHelper::FromWebContents(_contents) : nullptr;
+  return helper && helper->IsTabCapturing();
+}
+
+// The page's tab sharing bar, when its "Share this tab instead" button is there and enabled. TabSharingUIViews puts
+// one on every tab a call could switch to (same profile, not the shared tab, not blocked by policy).
+static TabSharingInfoBarDelegate* ShareInsteadBar(content::WebContents* contents) {
+  auto* manager = contents ? infobars::ContentInfoBarManager::FromWebContents(contents) : nullptr;
+  if (!manager) {
+    return nullptr;
+  }
+  for (infobars::InfoBar* bar : manager->infobars()) {
+    infobars::InfoBarDelegate* delegate = bar->delegate();
+    if (!delegate || delegate->GetIdentifier() != infobars::InfoBarDelegate::TAB_SHARING_INFOBAR_DELEGATE) {
+      continue;
+    }
+    auto* sharing = static_cast<TabSharingInfoBarDelegate*>(delegate);
+    if ((sharing->GetButtons() & TabSharingInfoBarDelegate::kShareThisTabInstead) &&
+        sharing->IsButtonEnabled(TabSharingInfoBarDelegate::kShareThisTabInstead)) {
+      return sharing;
+    }
+  }
+  return nullptr;
+}
+
+- (BOOL)canShareInstead {
+  return ShareInsteadBar(_contents) != nullptr;
+}
+
+- (BOOL)shareInstead {
+  TabSharingInfoBarDelegate* bar = ShareInsteadBar(_contents);
+  if (!bar) {
+    return NO;
+  }
+  bar->ShareThisTabInstead();  // Chrome's button: TabSharingUIViews::StartSharing, then new bars on every tab.
+  return YES;
 }
 
 - (NSArray<NSDictionary<NSString*, id>*>*)infoBars {
@@ -2541,10 +2754,6 @@ bool HandleDebugMethod(content::WebContents* contents,
   }
 }
 
-- (void)pageThemeColor {
-  [_delegate browser:self didReportThemeColor:Hex(_contents->GetThemeColor())];
-}
-
 - (void)pageBackgroundColor {
   if ([_delegate respondsToSelector:@selector(browser:didReportBackgroundColor:)]) {
     [_delegate browser:self didReportBackgroundColor:Hex(_contents->GetBackgroundColor())];
@@ -2579,11 +2788,25 @@ bool HandleDebugMethod(content::WebContents* contents,
 // (WebContentsImpl::RunFileChooser asks IsContentsActive) and closes one whose page stops being it. A click back
 // into a page from a Little Window's, or from another window's, left Chrome's active tab on that other page, and
 // every upload button (X's media button) did nothing. Only in the key window: the page the user is in.
+// Once Chrome is done with what it was doing: focus also comes back in the middle of a tab strip change. An
+// extension popup's Settings (#626, #631) opens the options page as a tab; Chrome closes the popup while that
+// tab goes in, Cra's window becomes key again, its page takes focus, and activating it there hit TabStripModel's
+// reentrancy CHECK. Only for the page focused last: an earlier one, made Chrome's active tab after another took the
+// focus, takes it back, and that one's turn takes it back again (two pages traded focus hundreds of times a second).
+// (Not the view's HasFocus: the window's key state reaches it later, and a page just focused read as not.)
 - (void)pageFocused {
-  if (_container.window.isKeyWindow) {
-    [self makeChromeActiveTab];
-  }
-  [_delegate browserDidReceiveFocus:self];
+  cra::g_last_focused_page = self;
+  CraBrowser* __weak weakSelf = self;
+  Later(base::BindOnce(^{
+    CraBrowser* page = weakSelf;
+    if (!page || !page->_contents || page != cra::g_last_focused_page) {
+      return;
+    }
+    if (page->_container.window.isKeyWindow) {
+      [page makeChromeActiveTab];
+    }
+    [page->_delegate browserDidReceiveFocus:page];
+  }));
 }
 
 - (void)pageDestroyed {
@@ -2675,6 +2898,23 @@ bool HandleDebugMethod(content::WebContents* contents,
   _contents->Focus();
 }
 
+- (void)setBoostTint:(NSString*)tint {
+  std::string value = base::SysNSStringToUTF8(tint ?: @"");
+  if (value == _boostTint) {
+    return;
+  }
+  _boostTint = value;
+  // Chrome asks again (OverrideWebPreferences → g_boost_tint) and the page repaints; a page made later
+  // gets it as it's made.
+  if (_contents) {
+    _contents->OnWebPreferencesChanged();
+  }
+}
+
+- (std::string)boostTintForPrefs {
+  return _boostTint;
+}
+
 - (void)setAudioMuted:(BOOL)muted {
   _audioMuted = muted;
   if (_contents) {
@@ -2744,6 +2984,11 @@ bool HandleDebugMethod(content::WebContents* contents,
   if (_spareContents && _spareProfile && !g_quitting) {
     Profile* profile = _spareProfile;
     _spareProfile = nullptr;
+    // A background tab's spare is hidden before it loads, as a page made hidden is (#552). Chromium ignores a
+    // hidden container until a page is first shown, so it is told directly; showing the tab shows it.
+    if ([self startsHidden]) {
+      _spareContents->WasHidden();
+    }
     [self insertContents:std::move(_spareContents) profile:profile];
   }
   // Taken before its profile loaded: createPageInProfile: makes it as a tab's page.
@@ -2859,6 +3104,19 @@ bool HandleDebugMethod(content::WebContents* contents,
   if (_contents) {
     _contents->ExitFullscreen(/*will_cause_resize=*/true);
   }
+}
+// The page holds the keyboard with Esc in it: Chrome's KeyboardLockController of the Browser that holds the page.
+- (BOOL)holdsEscapeKey {
+  if (!_contents) {
+    return NO;
+  }
+  auto it = Hosts().find(Profile::FromBrowserContext(_contents->GetBrowserContext()));
+  if (it == Hosts().end() || IsClosing(it->second->browser())) {
+    return NO;
+  }
+  ExclusiveAccessManager* manager = ExclusiveAccessManager::From(it->second->browser());
+  KeyboardLockController* lock = manager ? manager->keyboard_lock_controller() : nullptr;
+  return lock && lock->exclusive_access_tab() == _contents && lock->RequiresPressAndHoldEscToExit();
 }
 #pragma mark DevTools
 
@@ -3101,15 +3359,51 @@ bool HandleDebugMethod(content::WebContents* contents,
   if (_contents) {
     [self pageBackgroundColor];
   }
-}
-// Arc's black while websites are dark, white while they are light.
+}// Arc's black while websites are dark, white while they are light.
 + (NSColor*)pageCanvasColor {
-  NSInteger mode = cra::WebsiteAppearance();
-  BOOL dark = mode == 2 || (mode == 0 && [NSApp.effectiveAppearance
-                                             bestMatchFromAppearancesWithNames:@[ NSAppearanceNameAqua,
-                                                                                  NSAppearanceNameDarkAqua ]] ==
-                                             NSAppearanceNameDarkAqua);
-  return dark ? NSColor.blackColor : NSColor.whiteColor;
+  return PagesAreDark() ? NSColor.blackColor : NSColor.whiteColor;
+}
+// Until a page's renderer sends its first frame, Chromium's compositor fills the view with the view's own colour:
+// white unless the browser sets one. Chrome sets its theme's (ContentsWebView, which leaves Cra's pages alone:
+// cra-hosted-pages.patch); Cra sets Arc's canvas, so a Peek or a new tab of a dark site doesn't flash white (X,
+// 22 Nov). Only the colour before a frame: a page that paints nothing still paints white, as in Arc.
+- (void)applyPageCanvasTo:(content::RenderWidgetHostView*)view {
+  if (view) {
+    view->SetBackgroundColor(PagesAreDark() ? SK_ColorBLACK : SK_ColorWHITE);
+  }
+}
+// A new page draws its empty document before its first page commits, and that frame stays on screen until the page
+// paints: white for a second and more on a dark site that draws late (#712), for a tab woken from sleep whether it
+// takes a spare page (drawn before any tab took it), makes a page and restores its history, or reloads in place
+// after a discard (its renderer gone: PrimaryMainFrameRenderProcessGone). The empty document
+// draws in Arc's canvas instead; the page goes back to Chromium's white base once it draws
+// (pageFirstPaint), so a page with no background of its own still paints white, as in Arc.
+- (void)applyCanvasBaseTo:(content::WebContents*)contents {
+  if (!contents) {
+    return;
+  }
+  contents->SetPageBaseBackgroundColor(PagesAreDark() ? SK_ColorBLACK : SK_ColorWHITE);
+  [self applyPageCanvasTo:contents->GetRenderWidgetHostView()];
+  _canvasBase = YES;
+}
+- (void)applySpareCanvas {
+  [self applyCanvasBaseTo:_spareContents.get()];
+}
+// The page drew something of its own: Chromium's base again, so a page with no background of its own paints white,
+// as in Arc. Not at commit: a page restored from its history (a tab woken without a spare) drew its first frame on
+// the cleared base, white, before its own colours came (#712).
+- (void)pageFirstPaint {
+  if (_canvasBase && _contents && !_contents->IsBeingDestroyed()) {
+    _canvasBase = NO;
+    _contents->SetPageBaseBackgroundColor(std::nullopt);
+    [self applyPageCanvasTo:_contents->GetRenderWidgetHostView()];
+  }
+}
+// View ▸ Appearance while a page still waits for its first paint.
+- (void)refreshCanvasBase:(content::WebContents*)contents {
+  if (_canvasBase) {
+    [self applyCanvasBaseTo:contents];
+  }
 }
 - (void)executeJavaScript:(NSString*)script inDevTools:(BOOL)inDevTools {
   if (!inDevTools) {
@@ -3126,6 +3420,12 @@ bool HandleDebugMethod(content::WebContents* contents,
                 completion:(void (^)(NSString* _Nullable, NSString* _Nullable))completion {
   if (!_contents) {
     completion(nil, @"no browser");
+    return;
+  }
+  // Page.captureScreenshot and the others act on the page's view, which a page being torn down no longer has
+  // (crash-page-closed-while-loading).
+  if (_contents->IsBeingDestroyed()) {
+    completion(nil, @"page closing");
     return;
   }
   if (!_session) {
@@ -3263,6 +3563,82 @@ bool HandleDebugMethod(content::WebContents* contents,
 
 @end
 
+namespace {
+
+// Scenarios only (crash-extensions-renderer-reused-on-exit): a renderer host that starts its next process from inside
+// the notice that its last one ended, before the extensions system has heard of the end. Chrome's
+// RendererStartupHelper then still holds the old process's entry when the new one is created (and so sends it
+// nothing), drops the entry when its turn in the notice comes, and finds the new process untracked once it launches:
+// CHECK(GetRenderer(host) != nullptr || ...) in OnRenderProcessLaunched, two Cra crash reports (0.1.52, 0.1.54).
+// Chromium handles this on Android and ChromeOS only (renderer-startup-reused-process.patch does it on the Mac).
+// The helper's observer goes in when it registers a process, so the first end (the helper first, then this) puts
+// this one ahead of it for the second.
+class RendererReuseOnExit : public content::RenderProcessHostObserver {
+ public:
+  // A hidden page of its own gives it a renderer host through the public API (SiteInstance's
+  // GetOrCreateProcessForTesting is CHECK_IS_TEST in a shipping build).
+  explicit RendererReuseOnExit(Profile* profile)
+      : contents_(content::WebContents::Create(content::WebContents::CreateParams(
+            profile, content::SiteInstance::CreateForURL(profile, GURL("http://renderer-reuse.invalid/"))))) {
+    host_ = contents_->GetPrimaryMainFrame()->GetProcess();
+    host_->IncrementPendingReuseRefCount();
+    host_->AddObserver(this);
+    if (!host_->IsInitializedAndNotDead()) {
+      host_->Init();
+    } else if (host_->IsReady()) {
+      RenderProcessReady(host_);
+    }
+  }
+
+  void RenderProcessReady(content::RenderProcessHost* host) override {
+    if (step_ == 0 || step_ == 2) {
+      LOG(WARNING) << "Cra: renderer reuse: ends process " << step_ / 2 + 1;
+      ++step_;
+      host->Shutdown(content::RESULT_CODE_KILLED);
+    } else if (step_ == 4) {
+      LOG(WARNING) << "Cra: renderer reuse: the process started in the exit notice is running";
+      step_ = 5;
+      Later(base::BindOnce(&RendererReuseOnExit::Finish, base::Unretained(this)));
+    }
+  }
+
+  void RenderProcessExited(content::RenderProcessHost* host, const content::ChildProcessTerminationInfo&) override {
+    if (step_ == 1) {
+      // The extensions system heard first; its next registration comes after this observer.
+      step_ = 2;
+      Later(base::BindOnce([](content::RenderProcessHost* host) { host->Init(); }, base::Unretained(host)));
+    } else if (step_ == 3) {
+      LOG(WARNING) << "Cra: renderer reuse: starts the next process inside the exit notice";
+      step_ = 4;
+      host->Init();
+    }
+  }
+
+  void RenderProcessHostDestroyed(content::RenderProcessHost* host) override {
+    host_ = nullptr;
+    if (step_ != 5) {  // otherwise Finish, already posted, deletes it
+      // Not the page from inside its own process host's teardown.
+      base::SingleThreadTaskRunner::GetCurrentDefault()->DeleteSoon(FROM_HERE, std::move(contents_));
+      delete this;
+    }
+  }
+
+ private:
+  void Finish() {
+    if (host_) {
+      host_->RemoveObserver(this);
+      host_->DecrementPendingReuseRefCount();
+    }
+    delete this;
+  }
+
+  std::unique_ptr<content::WebContents> contents_;
+  raw_ptr<content::RenderProcessHost> host_ = nullptr;
+  int step_ = 0;
+};
+
+}  // namespace
+
 #pragma mark - CraCEFRuntime
 
 @implementation CraCEFRuntime
@@ -3338,7 +3714,13 @@ bool HandleDebugMethod(content::WebContents* contents,
       // Chrome unloads a profile once its last Chrome window closes. Cra's pages and spares live outside Chrome's
       // windows, so a profile whose hidden host closed went with pages still in it: ~WebContentsOfBrowserContext
       // from ProfileDestroyer::Timeout (0.1.44 crash reports). Cra's profiles stay loaded until it quits.
-      "DestroyProfileOnBrowserClose";
+      "DestroyProfileOnBrowserClose,"
+      // Chrome's code sign clone: at quit it starts a cleanup helper from Versions/<old>/Helpers, and Sparkle,
+      // waiting on that quit, replaces the bundle. When the update moves Chrome's version (158 → 159 in 0.1.52)
+      // the folder is gone, so the helper dies at dlopen, the framework bundle CHECK or ICU: 127 "Cra Helper"
+      // crash reports, 20–22 Nov 2026, each leaving a whole-app clone in $TMPDIR/../X. Chrome's own updater keeps
+      // old version folders; Sparkle installs after Cra quits, so Cra doesn't need the clone's protection.
+      "MacAppCodeSignClone";
   // CraEngineMain adds AperitifHelpers to this one.
   std::vector<std::string> enabled = {"ForceWebRequestProxyForTest", "WebContentsDiscard", "InfiniteTabsFreezing",
                                       "VideoPipForceTrustedForMediaPlaybackForTesting", "HideDelegatedFrameHostMac"};
@@ -3464,9 +3846,14 @@ bool HandleDebugMethod(content::WebContents* contents,
   if (!g_ready) {
     return nil;
   }
-  int ids = string == CraChromiumStringOpenLinkInNewTab      ? IDS_CONTENT_CONTEXT_OPENLINKNEWTAB
-            : string == CraChromiumStringSearchLensForImage ? IDS_CONTENT_CONTEXT_SEARCHLENSFORIMAGE
-                                                            : IDS_CONTENT_CONTEXT_SEARCHWEBFORIMAGE;
+  if (string == CraChromiumStringSearchWebForImage) {
+    // Chrome 159 dropped "Search $1 for Image" (IDS_CONTENT_CONTEXT_SEARCHWEBFORIMAGE) and its translations: Chrome
+    // labels every image search with the Lens string now. Arc's English label stays; in another language Cra
+    // keeps Chrome's own label (nil).
+    return base::StartsWith(g_browser_process->GetApplicationLocale(), "en") ? @"&Search $1 for Image" : nil;
+  }
+  int ids = string == CraChromiumStringOpenLinkInNewTab ? IDS_CONTENT_CONTEXT_OPENLINKNEWTAB
+                                                        : IDS_CONTENT_CONTEXT_SEARCHLENSFORIMAGE;
   return base::SysUTF16ToNSString(l10n_util::GetStringUTF16(ids));
 }
 + (void)setImageSearchTitle:(NSString* _Nullable (^)(NSString*))block {
@@ -3558,6 +3945,7 @@ bool HandleDebugMethod(content::WebContents* contents,
 // Test hook: the commands scenarios run by name.
 + (BOOL)runNextPageMenuCommand:(NSString*)name {
   static NSDictionary<NSString*, NSNumber*>* const commands = @{
+    @"IDC_CONTENT_CONTEXT_OPENLINKNEWTAB" : @(kMenuOpenLinkNewTab),
     @"IDC_VIEW_SOURCE" : @(IDC_VIEW_SOURCE),
     @"IDC_CONTENT_CONTEXT_VIEWFRAMESOURCE" : @(IDC_CONTENT_CONTEXT_VIEWFRAMESOURCE),
     @"IDC_CONTENT_CONTEXT_INSPECTELEMENT" : @(IDC_CONTENT_CONTEXT_INSPECTELEMENT),
@@ -3604,6 +3992,61 @@ bool HandleDebugMethod(content::WebContents* contents,
 + (NSString*)pageWindowsReadout {
   return [NSString stringWithFormat:@"shown=%ld away=%ld animated=%ld", (long)g_page_windows_shown,
                                     (long)g_page_windows_away, (long)g_page_windows_animated];
+}
+// The view Chrome's Settings find as the page's browser window (kBrowserViewElementId), in a profile's hidden Browser.
+views::View* PageHostBrowserView(BrowserWindowInterface* browser) {
+  views::Widget* widget =
+      views::Widget::GetWidgetForNativeWindow(browser->GetWindow()->GetNativeWindow());
+  std::vector<views::View*> queue = {widget ? widget->GetRootView() : nullptr};
+  while (!queue.empty()) {
+    views::View* view = queue.back();
+    queue.pop_back();
+    if (!view) {
+      continue;
+    }
+    if (view->GetProperty(views::kElementIdentifierKey) == kBrowserViewElementId) {
+      return view;
+    }
+    for (views::View* child : view->children()) {
+      queue.push_back(child);
+    }
+  }
+  return nullptr;
+}
+// "element=<0|1> shown=<0|1>" per profile's hidden Browser: whether Chrome finds its browser element, which its
+// Settings CHECKed for (Clear browsing data's Cancel crashed Cra 0.1.50 without it), for cra://debug?hostBrowserView=.
++ (NSString*)pageHostBrowserViewReadout {
+  NSMutableArray<NSString*>* hosts = [NSMutableArray array];
+  for (auto& [profile, host] : Hosts()) {
+    BrowserWindowInterface* browser = host->browser();
+    if (!browser) {
+      continue;
+    }
+    ui::TrackedElement* element = ui::ElementTracker::GetElementTracker()->GetUniqueElement(
+        kBrowserViewElementId, BrowserElements::From(browser)->GetContext());
+    views::View* view = PageHostBrowserView(browser);
+    [hosts addObject:[NSString stringWithFormat:@"element=%d shown=%d", element ? 1 : 0,
+                                                (view && view->GetVisible()) ? 1 : 0]];
+  }
+  return hosts.count ? [hosts componentsJoinedByString:@"; "] : @"no host";
+}
+// Scenarios only: every hidden Browser's view out of sight, so Chrome finds no browser element for its pages, the
+// state a Mac was in when Clear browsing data's Cancel crashed (crash-clear-browsing-data-cancel).
++ (void)setPageHostBrowserViewsHidden:(BOOL)hidden {
+  for (auto& [profile, host] : Hosts()) {
+    if (views::View* view = host->browser() ? PageHostBrowserView(host->browser()) : nullptr) {
+      view->SetVisible(!hidden);
+    }
+  }
+}
+// Scenarios only: a renderer process started inside the notice that the one before it ended
+// (crash-extensions-renderer-reused-on-exit, RendererReuseOnExit above). Its steps go to Chrome's log.
++ (void)reuseRendererInsideExitNotice {
+  if (Hosts().empty()) {
+    LOG(WARNING) << "Cra: renderer reuse: no profile";
+    return;
+  }
+  new RendererReuseOnExit(Hosts().begin()->first);
 }
 + (BOOL)hasBrowserDevTools {
   return g_cdp_write_fd >= 0;
@@ -3711,9 +4154,19 @@ bool HandleDebugMethod(content::WebContents* contents,
 }
 + (void)setWebsiteAppearance:(NSInteger)mode {
   cra::SetWebsiteAppearance(mode);
+  for (const auto& [contents, page] : PagesByContents()) {
+    [page applyPageCanvasTo:contents->GetRenderWidgetHostView()];
+    [page refreshCanvasBase:contents];
+  }
+  for (CraBrowser* spare in SparePages().allObjects) {
+    [spare applySpareCanvas];
+  }
 }
 + (NSInteger)websiteAppearance {
   return cra::WebsiteAppearance();
+}
++ (void)setWebsiteAppearanceChangeHandler:(void (^)(NSInteger))handler {
+  cra::SetWebsiteAppearanceHandler(handler);
 }
 + (NSString*)secureDNSMode {
   return g_quitting ? nil : cra::SecureDNSPreference("dns_over_https.mode");
@@ -3813,6 +4266,37 @@ BOOL CraIsSystemHotKey(NSEvent* event) {
 
 }  // namespace
 
+namespace {
+
+// AppKit raises "-_newFirstResponderAfterResigning is not a valid message outside of a responder's implementation
+// of -resignFirstResponder" when a text field in a popover or panel gives up focus while another window takes the
+// key window: the crash-report question's sheet, a page window, the space icon popover (0.1.53 crash reports,
+// crash-first-responder-after-resigning). Other Mac apps get it logged; with Chrome's NSApplicationCrashOnExceptions
+// (content/app/mac_init.mm) AppKit's event loop throws it on after -reportException: and Cra quit. It's caught where
+// it's raised: the method answers nil (no new first responder) and the focus change goes on. Every other exception
+// still reaches Chrome's handling.
+void DropFirstResponderAfterResigningException() {
+  SEL sel = NSSelectorFromString(@"_newFirstResponderAfterResigning");
+  Method method = class_getInstanceMethod([NSWindow class], sel);
+  if (!method || strcmp(method_getTypeEncoding(method), "@16@0:8") != 0) {
+    return;
+  }
+  auto original = reinterpret_cast<id (*)(id, SEL)>(method_getImplementation(method));
+  method_setImplementation(method, imp_implementationWithBlock(^id(NSWindow* window) {
+    @try {
+      return original(window, sel);
+    } @catch (NSException* exception) {
+      if (![exception.name isEqualToString:NSInternalInconsistencyException]) {
+        @throw;
+      }
+      NSLog(@"Cra: AppKit exception dropped: %@", exception.reason);
+      return nil;
+    }
+  }));
+}
+
+}  // namespace
+
 @implementation CraApplication {
   NSHashTable<NSEvent*>* _forwardedKeyEvents;
 }
@@ -3829,6 +4313,7 @@ BOOL CraIsSystemHotKey(NSEvent* event) {
   if (!base::CommandLine::InitializedForCurrentProcess()) {
     base::CommandLine::Init(0, nullptr);
   }
+  DropFirstResponderAfterResigningException();
 }
 
 + (NSInteger)backgroundActivations {

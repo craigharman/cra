@@ -1,3 +1,4 @@
+import Foundation
 import CoreGraphics
 import CraCore
 import Testing
@@ -78,6 +79,19 @@ struct LibrarySwipeTests {
         #expect(LibrarySwipe.isSettled(from: 0.6, velocity: 0, to: 1, at: 1, width: 347))
     }
 
+    /// A swipe settles as fast as Arc's: within 1 % of the way in 0.22 s and not before 0.15 s (Arc's spring,
+    /// measured at ω ≈ 30.6). Cra used Dia's 0.4 s spring, still 14 % short at 0.22 s: on #613's side-by-side
+    /// recording every Cra swipe took ~330 ms to land and every Arc swipe ~215 ms.
+    @Test(.bug("https://github.com/VictorKildahl/cra/issues/613"))
+    func settlesAsFastAsArcs() {
+        let left = { (t: CGFloat) in 1 - LibrarySwipe.settle(from: 0, velocity: 0, to: 1, at: t) }
+        #expect(left(0.22) < 0.01)
+        #expect(left(0.15) > 0.02)
+        #expect(abs(LibrarySwipe.omega - 30.6) < 0.2)
+        // At rest within a quarter point of a 347 pt sidebar page by a third of a second (Arc: ~0.27 s to rest).
+        #expect(LibrarySwipe.isSettled(from: 0, velocity: 0, to: 1, at: 0.34, width: 347))
+    }
+
     /// The Library button turns a settle around at the speed it is moving.
     @Test func settleVelocityIsTheSlope() {
         #expect(LibrarySwipe.settleVelocity(from: 0, velocity: 2, to: 1, at: 0) == 2)
@@ -86,5 +100,87 @@ struct LibrarySwipeTests {
                 - LibrarySwipe.settle(from: 0, velocity: 0, to: 1, at: t - 0.0005)) / 0.001
             #expect(abs(LibrarySwipe.settleVelocity(from: 0, velocity: 0, to: 1, at: t) - slope) < 0.001)
         }
+    }
+
+    // MARK: From a hidden sidebar (Arc 1.173.1, 18 Nov 2026)
+
+    @Test func aFloatingSidebarOnTheFirstSpaceSwipesIntoTheLibrary() {
+        #expect(LibrarySwipe.startsFromHiddenSidebar(floatingShown: true, onFirstSpace: true))
+        #expect(!LibrarySwipe.startsFromHiddenSidebar(floatingShown: true, onFirstSpace: false))
+        #expect(!LibrarySwipe.startsFromHiddenSidebar(floatingShown: false, onFirstSpace: true))
+    }
+
+    /// Arc's page had moved 322 px when its floating sidebar had gone back 211 px, and 144 px for 97.
+    @Test func theFloatingSidebarGoesBackTwoPointsForThePagesThree() {
+        let library: CGFloat = 405
+        for r: CGFloat in [0.178, 0.4] {
+            let page = LibrarySwipe.pageEdgeFromHidden(reveal: r, library: library, inset: 0)
+            let retreat = LibrarySwipe.floatingRetreat(reveal: r, library: library)
+            #expect(abs(page / retreat - 1.5) < 0.001)
+        }
+        #expect(abs(LibrarySwipe.floatingRetreat(reveal: 0.4, library: library) - 108) < 0.001)
+        #expect(LibrarySwipe.floatingRetreat(reveal: 0, library: library) == 0)
+        #expect(LibrarySwipe.floatingRetreat(reveal: -0.1, library: library) == 0)
+        // With the Library in, a 250 pt sidebar 6 pt inside the window is out of sight.
+        #expect(LibrarySwipe.floatingRetreat(reveal: 1, library: library) >= 256)
+    }
+
+    /// From a hidden sidebar the Library comes in docked at its full width and pushes the page before it, as Arc
+    /// 1.173.1's does (a 120 Hz recording, 18 Nov 2026): #679 asked for less of a push, and Arc's is this one.
+    @Test(.bug("https://github.com/VictorKildahl/cra/issues/679"))
+    func thePageStaysAgainstTheLibraryFromItsHiddenPlace() {
+        let library: CGFloat = 417
+        let rest: CGFloat = 10
+        #expect(LibrarySwipe.pageEdgeFromHidden(reveal: 0, library: library, inset: rest) == rest)
+        #expect(LibrarySwipe.pageEdgeFromHidden(reveal: 0.01, library: library, inset: rest) == rest)
+        let half: CGFloat = 208.5
+        #expect(LibrarySwipe.pageEdgeFromHidden(reveal: 0.5, library: library, inset: rest) == half)
+        #expect(LibrarySwipe.pageEdgeFromHidden(reveal: 1, library: library, inset: rest) == library)
+        // The Library under it: its right edge is the page's left one.
+        #expect(LibrarySwipe.libraryX(reveal: 0.5, base: 0, library: library) + library == half)
+    }
+}
+
+/// The settle after a swipe counts its time from the first frame it draws, not from the release (#613).
+@Suite struct SettleClockTests {
+    /// On #613's side-by-side recording Cra's sidebar stood still for a frame when the fingers lifted, then jumped
+    /// 25 to 46 points in one frame, where Arc's picked up speed over three frames. The release switches the space,
+    /// which keeps the main thread from drawing for a frame or two, and a spring timed from the release had already
+    /// run that long when it first drew. Timed from its first frame it starts with one frame's step, however long
+    /// the release took.
+    @Test(.bug("https://github.com/VictorKildahl/cra/issues/613"))
+    func aSlowReleaseDoesNotJumpTheSettle() {
+        let frame = 1.0 / 60
+        let release = 100.0
+        // The release frame takes 50 ms: the first frame drawn is three frames on.
+        let firstFrame = release + 3 * frame
+        var clock = SettleClock(started: release)
+        let t1 = clock.elapsed(atFrame: firstFrame, interval: frame)
+        let step = { (t: TimeInterval) in LibrarySwipe.settle(from: 0, velocity: 0.5, to: 1, at: CGFloat(t)) }
+        // One frame's way, as if the settle had begun the frame before it drew.
+        #expect(abs(t1 - frame) < 1e-9)
+        #expect(step(t1) < step(frame) + 1e-9)
+        // The next frames follow on from it, a frame apart.
+        #expect(abs(clock.elapsed(atFrame: firstFrame + frame, interval: frame) - 2 * frame) < 1e-9)
+        #expect(abs(clock.elapsed(atFrame: firstFrame + 2 * frame, interval: frame) - 3 * frame) < 1e-9)
+        // Timed from the release, the first frame would have shown three frames' way at once: the jump.
+        #expect(step(firstFrame - release) - step(t1) > 0.1)
+    }
+
+    /// Before its first frame the settle is where the release left it: a turn-around (the Library button pressed
+    /// mid-settle) starts from there, at the release speed.
+    @Test func beforeItsFirstFrameTheSettleHasNotMoved() {
+        let clock = SettleClock(started: 10)
+        #expect(clock.elapsed(now: 10.2) == 0)
+        var drawn = clock
+        _ = drawn.elapsed(atFrame: 10.05, interval: 1.0 / 120)
+        #expect(abs(drawn.elapsed(now: 10.1) - (0.05 + 1.0 / 120)) < 1e-9)
+    }
+
+    /// The tint settles with the strip: one response for both, Arc's (ω = 2π / response).
+    @Test(.bug("https://github.com/VictorKildahl/cra/issues/613"))
+    func theTintSettlesOnTheSameSpring() {
+        #expect(abs(LibrarySwipe.response - 0.205) < 1e-9)
+        #expect(abs(LibrarySwipe.omega - 2 * .pi / LibrarySwipe.response) < 1e-9)
     }
 }

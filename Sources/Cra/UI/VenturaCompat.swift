@@ -21,11 +21,11 @@ private final class TimerTicker: NSObject, FrameTicker {
     private(set) var timestamp = CACurrentMediaTime()
     var targetTimestamp: CFTimeInterval { timestamp + Self.interval }
 
-    init(target: NSObject, selector: Selector) {
+    init(target: AnyObject, selector: Selector) {
         super.init()
         let timer = Timer(timeInterval: Self.interval, repeats: true) { [unowned self] _ in
             timestamp = CACurrentMediaTime()
-            _ = target.perform(selector, with: self)
+            _ = target.perform?(selector, with: self)
         }
         RunLoop.main.add(timer, forMode: .common)
         self.timer = timer
@@ -40,7 +40,30 @@ private final class TimerTicker: NSObject, FrameTicker {
 extension NSView {
     /// Calls `selector` on `target` (with the ticker) every frame of this view's display, in
     /// the common run loop modes, until the ticker is invalidated.
-    func startFrameTicker(target: NSObject, selector: Selector) -> any FrameTicker {
+    func startFrameTicker(target: AnyObject, selector: Selector) -> any FrameTicker {
+        if #available(macOS 14.0, *) {
+            let link = displayLink(target: target, selector: selector)
+            link.add(to: .main, forMode: .common)
+            return link
+        }
+        return TimerTicker(target: target, selector: selector)
+    }
+}
+
+extension View {
+    /// `.scrollIndicatorsFlash(onAppear:)` on macOS 14 and later; Ventura doesn't flash them.
+    @ViewBuilder func scrollIndicatorsFlashIfAvailable(onAppear: Bool) -> some View {
+        if #available(macOS 14.0, *) {
+            scrollIndicatorsFlash(onAppear: onAppear)
+        } else {
+            self
+        }
+    }
+}
+
+extension NSWindow {
+    /// NSView.startFrameTicker for the display this window is on.
+    func startFrameTicker(target: AnyObject, selector: Selector) -> any FrameTicker {
         if #available(macOS 14.0, *) {
             let link = displayLink(target: target, selector: selector)
             link.add(to: .main, forMode: .common)

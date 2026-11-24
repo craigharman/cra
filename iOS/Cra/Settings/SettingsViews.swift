@@ -12,13 +12,15 @@ final class SettingsModel: ObservableObject {
     var showArchive: () -> Void = {}
     var showDownloads: () -> Void = {}
     var clearData: (_ history: Bool, _ siteData: Bool) -> Void = { _, _ in }
-    var exportData: () -> Void = {}
+    var exportData: (CGRect) -> Void = { _ in }
     var showOnboarding: () -> Void = {}
     var showWidgetGuide: () -> Void = {}
     var showIconDock: () -> Void = {}
     var showSpaces: () -> Void = {}
-    var shareCra: () -> Void = {}
+    var shareCra: (CGRect) -> Void = { _ in }
     var done: () -> Void = {}
+    /// Something changed: the browser lays out again (App Settings ▸ Rippling Dots changes the empty home screen).
+    var changed: () -> Void = {}
 
     init(store: MobileSettingsStore, host: String?, canSummarize: Bool) {
         self.store = store
@@ -30,6 +32,7 @@ final class SettingsModel: ObservableObject {
     func update(_ change: (inout MobileSettings) -> Void) {
         store.update(change)
         settings = store.value
+        changed()
     }
 
     /// The options of the sheet's site.
@@ -226,6 +229,8 @@ struct AppSettingsView: View {
 struct AppSettingsList: View {
     @ObservedObject var model: SettingsModel
     @State private var clearing = false
+    @State private var exportFrame = CGRect.zero
+    @State private var shareFrame = CGRect.zero
     @State private var editingCustom = false
     @State private var customAddress = ""
 
@@ -290,6 +295,11 @@ struct AppSettingsList: View {
                     SettingLabel(title: "Auto-Open Keyboard", symbol: "keyboard.fill", color: .yellow)
                 }
                 .accessibilityIdentifier("setting-keyboard-on-launch")
+                Toggle(isOn: model.binding(\.homeDots)) {
+                    SettingLabel(title: "Rippling Dots", symbol: "circle.grid.3x3.fill", color: .indigo,
+                                 subtitle: "Dots under the logo when no tab is open")
+                }
+                .accessibilityIdentifier("setting-home-dots")
                 ValueRow(label: SettingLabel(title: "Archive Inactive Tabs", symbol: "archivebox.fill", color: .purple),
                          selection: model.binding(\.archiveAfter), options: MobileArchiveAfter.allCases, title: \.settingValue)
                     .accessibilityIdentifier("setting-archive-after")
@@ -299,8 +309,9 @@ struct AppSettingsList: View {
                 ActionRow(label: SettingLabel(title: "Clear Browsing Data...", symbol: "eraser.fill", color: .red), chevron: false) { clearing = true }
                     .accessibilityIdentifier("setting-clear-data")
                 ActionRow(label: SettingLabel(title: "Export Data", symbol: "square.and.arrow.up", color: .blue,
-                                              subtitle: "Share your open tab URLs"), chevron: false) { model.exportData() }
+                                              subtitle: "Share your open tab URLs"), chevron: false) { model.exportData(exportFrame) }
                     .accessibilityIdentifier("setting-export-data")
+                    .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { exportFrame = $0 }
             }
             .settingsRow()
             // Arc Search's "Sync with Arc Desktop / Sign in": Cra's Mac shares its Spaces through iCloud.
@@ -312,7 +323,7 @@ struct AppSettingsList: View {
             .settingsRow()
             // Arc Search's "Gift Arc to a friend" capsule; Cra has nothing to gift, so it shares the app.
             Section {
-                Button { model.shareCra() } label: {
+                Button { model.shareCra(shareFrame) } label: {
                     HStack(spacing: 14) {
                         Image(systemName: "gift.fill").font(.system(size: 19, weight: .semibold))
                         Text("Share Cra with a friend").font(.body.weight(.semibold))
@@ -329,6 +340,7 @@ struct AppSettingsList: View {
                 .listRowInsets(EdgeInsets())
                 .listRowBackground(Color.clear)
                 .accessibilityIdentifier("setting-share-cra")
+                .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { shareFrame = $0 }
             }
             Section {
                 ActionRow(label: SettingLabel(title: "Contact the Team", symbol: "envelope.fill", color: .gray), chevron: false) {
@@ -449,7 +461,7 @@ struct BlockListsView: View {
                 }
                 .accessibilityIdentifier("block-lists-add")
             } footer: {
-                Text("Add a list to block more, like ads in your country. Cra uses its domain rules (hosts files, domain lists and Adblock Plus “||domain^” rules) where Block Ads is on, and fetches it again each day.")
+                Text("Add a list to block more, like ads in your country. Cra uses hosts files, domain lists and Adblock Plus lists such as EasyList, with their path and element-hiding rules, where Block Ads is on, and fetches each list again every day. Rules the iPhone’s blocker can’t run, like scriptlets, are left out and counted.")
             }
             .settingsRow()
         }
@@ -484,8 +496,9 @@ struct BlockListsView: View {
                     if let failure = lists.failures[address] {
                         Text(failure).foregroundStyle(.red)
                     } else if let list {
-                        Text(CustomBlocklist.summary(domains: list.domains.count, skippedRules: list.skippedRules)
-                             + " · Updated " + list.fetched.formatted(.relative(presentation: .named)))
+                        // A list with full rules (#570) says how many apply once they're read.
+                        let summary = lists.rules[address].map(CustomBlocklist.summary) ?? "Reading the list…"
+                        Text(summary + " · Updated " + list.fetched.formatted(.relative(presentation: .named)))
                     } else {
                         Text("Fetching…")
                     }

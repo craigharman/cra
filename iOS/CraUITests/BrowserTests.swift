@@ -1,4 +1,5 @@
 import XCTest
+import UIKit
 
 /// The app driven by real taps in the simulator. Pages are `data:` addresses, so nothing here
 /// needs the network. `scripts/ios.sh test` runs these and saves the screenshots they attach.
@@ -32,6 +33,26 @@ class BrowserTestCase: XCTestCase {
 
     func waitForPage(_ title: String, file: StaticString = #filePath, line: UInt = #line) {
         XCTAssertTrue(app.webViews.staticTexts[title].waitForExistence(timeout: 20), "page \(title) never showed", file: file, line: line)
+    }
+
+    func closeShareSheet(openedFrom button: XCUIElement) {
+        let activity = app.otherElements["ActivityListView"]
+        let navigation = app.navigationBars["UIActivityContentView"]
+        XCTAssertTrue(activity.waitForExistence(timeout: 5) || navigation.waitForExistence(timeout: 2),
+                      "the share sheet opens")
+        if UIDevice.current.userInterfaceIdiom == .pad {
+            let popover = activity.exists ? activity : navigation
+            XCTAssertTrue(popover.frame.insetBy(dx: -40, dy: -40).intersects(button.frame),
+                          "the share popover is attached to its source button")
+            let outside = app.coordinate(withNormalizedOffset: .zero).withOffset(
+                CGVector(dx: app.frame.midX, dy: app.frame.maxY - 20))
+            XCTAssertFalse(popover.frame.contains(CGPoint(x: app.frame.midX, y: app.frame.maxY - 20)))
+            outside.tap()
+        } else {
+            app.swipeDown(velocity: .fast)
+        }
+        XCTAssertTrue(activity.waitForNonExistence(timeout: 5))
+        XCTAssertTrue(navigation.waitForNonExistence(timeout: 5))
     }
 
     /// The bottom bar is back on screen once the keyboard is gone (GitHub #505: a keyboard that
@@ -131,7 +152,67 @@ final class TabSwitcherTests: BrowserTestCase {
     }
 }
 
+/// The bottom bar's buttons tick under the finger as Arc Search's do (#675). The simulator plays no haptics, so with
+/// `-CraCountHaptics YES` each button counts the ticks it played.
+final class BarHapticsTests: BrowserTestCase {
+    // promise: #675
+    func testBarButtonsTickOnPressAndOnRelease() {
+        launch(["-CraOpenURL", Self.page("First"), "-CraSearch", "NO", "-CraCountHaptics", "YES"])
+        waitForPage("First")
+        // The New Tab pill, which gave nothing before: one tick down, one up (read once the sheet has gone and
+        // the pill is back on screen).
+        app.buttons["bar-search"].tap()
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5))
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.12)).tap()
+        XCTAssertTrue(app.buttons["bar-search"].waitForExistence(timeout: 5))
+        waitForBarOnScreen()
+        XCTAssertEqual(app.buttons["bar-search"].value as? String, "ticks 2")
+        // The menu button.
+        app.buttons["bar-menu"].tap()
+        XCTAssertTrue(app.buttons["menu-tile-share"].waitForExistence(timeout: 5))
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.1)).tap()
+        XCTAssertTrue(app.buttons["bar-menu"].waitForExistence(timeout: 5))
+        XCTAssertEqual(app.buttons["bar-menu"].value as? String, "ticks 2")
+        // The tab stack, then Settings in the tab switcher.
+        app.buttons["bar-tabs"].tap()
+        let settings = app.buttons["bar-settings"]
+        XCTAssertTrue(settings.waitForExistence(timeout: 5))
+        settings.tap()
+        XCTAssertTrue(app.buttons["Done"].waitForExistence(timeout: 5))
+        app.buttons["Done"].tap()
+        XCTAssertTrue(settings.waitForExistence(timeout: 5))
+        XCTAssertEqual(settings.value as? String, "ticks 2")
+        // Back on the page by its card, where the tab stack shows again.
+        app.buttons["tab-card-0"].tap()
+        XCTAssertTrue(app.buttons["bar-tabs"].waitForExistence(timeout: 5))
+        XCTAssertEqual(app.buttons["bar-tabs"].value as? String, "ticks 2")
+    }
+}
+
 final class PageMenuTests: BrowserTestCase {
+    // promise: #670
+    func testShareFromThePageMenu() {
+        launch(["-CraOpenURL", Self.page("First"), "-CraSearch", "NO"])
+        waitForPage("First")
+        let menu = app.buttons["bar-menu"]
+        menu.tap()
+        app.buttons["menu-tile-share"].tap()
+        closeShareSheet(openedFrom: menu)
+        menu.tap()
+        XCTAssertTrue(app.buttons["menu-tile-share"].waitForExistence(timeout: 5))
+    }
+
+    // promise: #670
+    func testHoldingTheMenuSharesThePage() {
+        launch(["-CraOpenURL", Self.page("First"), "-CraSearch", "NO"])
+        waitForPage("First")
+        let menu = app.buttons["bar-menu"]
+        menu.press(forDuration: 1.5)
+        closeShareSheet(openedFrom: menu)
+        menu.tap()
+        XCTAssertTrue(app.buttons["menu-tile-share"].waitForExistence(timeout: 5))
+    }
+
     /// The up arrow opens the menu on the page's site, with Arc Search's tiles and rows.
     func testTheMenuShowsThePageAndItsControls() {
         launch(["-CraOpenURL", "https://example.com/", "-CraSearch", "NO"])
@@ -176,6 +257,33 @@ final class PageMenuTests: BrowserTestCase {
 }
 
 final class SettingsTests: BrowserTestCase {
+    // promise: #670
+    func testShareCraFromSettings() {
+        openSettingsShare("setting-share-cra")
+    }
+
+    // promise: #670
+    func testExportDataFromSettings() {
+        openSettingsShare("setting-export-data")
+    }
+
+    private func openSettingsShare(_ identifier: String) {
+        launch(["-CraOpenURL", Self.page("First"), "-CraSearch", "NO"])
+        waitForPage("First")
+        app.buttons["bar-tabs"].tap()
+        app.buttons["bar-settings"].tap()
+        let button = app.buttons[identifier]
+        for _ in 0..<8 {
+            if button.isHittable { break }
+            app.swipeUp()
+        }
+        XCTAssertTrue(button.isHittable)
+        button.tap()
+        closeShareSheet(openedFrom: button)
+        app.buttons["Done"].tap()
+        XCTAssertTrue(app.buttons["bar-settings"].waitForExistence(timeout: 5))
+    }
+
     /// Site Settings opens from the page menu on the page's site, and a switch flipped there is
     /// still flipped when the sheet is opened again.
     func testSiteSettingsKeepsASitesChoice() {
@@ -207,6 +315,24 @@ final class SettingsTests: BrowserTestCase {
         sleep(1)
         keep("default-site-settings")
         XCTAssertEqual(app.switches["setting-block-ads"].value as? String, "1", "the site's choice leaves the global one alone")
+    }
+
+    // promise: #674
+    func testAppSettingsOpensTallOnIPadAndHalfOnIPhone() {
+        launch(["-CraOpenURL", Self.page("First"), "-CraSearch", "NO"])
+        waitForPage("First")
+        app.buttons["bar-tabs"].tap()
+        app.buttons["bar-settings"].tap()
+        XCTAssertTrue(app.buttons["setting-global-site-settings"].waitForExistence(timeout: 5))
+        sleep(1)
+        keep("app-settings-open")
+        if UIDevice.current.userInterfaceIdiom == .pad {
+            XCTAssertLessThan(app.buttons["Done"].frame.minY, app.frame.height / 3,
+                              "App Settings opened as a short card on iPad")
+        } else {
+            XCTAssertGreaterThan(app.buttons["Done"].frame.minY, app.frame.height * 0.4,
+                                 "App Settings did not open at medium height on iPhone")
+        }
     }
 
     /// The bottom of App Settings as in Arc Search 1.49: Sync, the share capsule, Contact the
@@ -293,6 +419,75 @@ final class BlockingTests: BrowserTestCase {
         // Let through, the request is the network's business: it loads, or is still on its way on
         // a slow or filtered network. Stopped by a rule it would have failed at once.
         XCTAssertNotEqual(card.label, "script-stopped")
+    }
+
+    // promise: #570
+    /// Manga sites' pop-up ads (#570) load from Monetag's loader and zone scripts, on domains that
+    /// change every few days. This page asks for both from domains no list has; Cra's filters stop
+    /// them by their path, before any network, and the menu counts both. Without the filters the
+    /// two requests go out, fail on hosts that don't exist, and nothing is counted.
+    func testAnAdLoaderFromAnUnlistedDomainIsStoppedByItsPath() {
+        let page = "data:text/html,<meta name=viewport content='width=device-width'><title>Manga</title><h1>Manga</h1>"
+            + "<script src='https://cra-test-570-loader.com/btag.min.js'></script>"
+            + "<script src='https://qwertyuiopcra.net/5/9357427/'></script>"
+        launch(["-CraOpenURL", page, "-CraSearch", "NO"])
+        waitForPage("Manga")
+        app.buttons["bar-menu"].tap()
+        let footer = app.buttons["menu-reload-without-blockers"]
+        XCTAssertTrue(footer.waitForExistence(timeout: 10))
+        XCTAssertEqual(footer.value as? String, "Cra scrubbed 2 trackers")
+        keep("ad-loader-blocked")
+    }
+
+    // promise: #570
+    /// A list added under Block Lists applies its path rules, not only its domains (#570). The list,
+    /// served by the local fixture server, has a path rule for a script on `cra.localhost`, which no
+    /// list has, a hiding rule and a scriptlet Cra can't run. Its row says so; then a reload of the
+    /// page stops the script (the tab's title says which of onload/onerror ran) and the menu counts it.
+    /// Before #570 the list had no domains, so its fetch failed and the script loaded.
+    func testAnAddedListsPathRuleStopsAScriptFromAnUnlistedDomain() throws {
+        let base = ProcessInfo.processInfo.environment["CRA_POPUP_TEST_BASE_URL"] ?? "http://127.0.0.1:18765"
+        let data = FileManager.default.temporaryDirectory.appendingPathComponent("Cra-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: data, withIntermediateDirectories: true)
+        // Added as Add List would, but over http: the fixture server is plain http on the loopback,
+        // which the app's fetch may reach and Add List refuses to type in.
+        try #"{"hasSeenOnboarding": true, "hasSeenBlockTip": true, "customBlocklists": ["\#(base)/cra-570/list.txt"]}"#
+            .write(to: data.appendingPathComponent("settings.json"), atomically: true, encoding: .utf8)
+        // The page comes from the fixture server too: XCUITest drops the quotes its onerror needs.
+        app.launchArguments = ["-CraDataDir", data.path, "-CraOpenURL", base + "/cra-570/page", "-CraSearch", "NO"]
+        app.launch()
+        waitForPage("Path rule")
+
+        app.buttons["bar-tabs"].tap()
+        app.buttons["bar-settings"].tap()
+        XCTAssertTrue(app.buttons["setting-global-site-settings"].waitForExistence(timeout: 5))
+        app.buttons["setting-global-site-settings"].tap()
+        XCTAssertTrue(app.buttons["setting-block-lists"].waitForExistence(timeout: 5))
+        app.buttons["setting-block-lists"].tap()
+        XCTAssertTrue(app.staticTexts["Cra test list 570"].waitForExistence(timeout: 30), "the list was fetched")
+        let summary = app.staticTexts.containing(NSPredicate(format: "label BEGINSWITH %@", "2 rules · 1 rule Cra can’t use · ")).firstMatch
+        XCTAssertTrue(summary.waitForExistence(timeout: 10), "the row says what the list applies")
+        keep("added-list-full-rules")
+        app.buttons["Done"].tap()
+
+        XCTAssertTrue(app.buttons["tab-card-0"].waitForExistence(timeout: 5))
+        app.buttons["tab-card-0"].tap()
+        waitForPage("Path rule")
+        app.buttons["bar-menu"].tap()
+        XCTAssertTrue(app.buttons["menu-reload"].waitForExistence(timeout: 5))
+        app.buttons["menu-reload"].tap()
+        XCTAssertTrue(app.buttons["bar-tabs"].waitForExistence(timeout: 5))
+        sleep(3)
+        app.buttons["bar-menu"].tap()
+        let footer = app.buttons["menu-reload-without-blockers"]
+        XCTAssertTrue(footer.waitForExistence(timeout: 10))
+        XCTAssertEqual(footer.value as? String, "Cra scrubbed 1 tracker", "the added list's path rule is counted")
+        keep("added-list-path-blocked")
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.1)).tap()
+        app.buttons["bar-tabs"].tap()
+        let card = app.buttons["tab-card-0"]
+        XCTAssertTrue(card.waitForExistence(timeout: 5))
+        XCTAssertEqual(card.label, "loader-stopped", "WebKit stopped the script")
     }
 
     // promise: #507
@@ -471,12 +666,13 @@ final class GestureTests: BrowserTestCase {
         launch(["-CraOpenURL", Self.page("First"), "-CraSearch", "NO"])
         waitForPage("First")
         openSecondTab()
+        // Read from the page on screen: picking a card in the row would move it to the row's end (#647).
         drag(fromX: 0.3, toX: 0.9, y: 0.95)
-        sleep(1)
-        XCTAssertEqual(shownTabTitle(), "First")
+        waitForPage("First")
+        XCTAssertFalse(app.webViews.staticTexts["Second"].exists)
         drag(fromX: 0.8, toX: 0.2, y: 0.95)
-        sleep(1)
-        XCTAssertEqual(shownTabTitle(), "Second")
+        waitForPage("Second")
+        XCTAssertFalse(app.webViews.staticTexts["First"].exists)
     }
 
     /// A swipe right across a tab's first page archives the tab and shows the one before it; the
@@ -629,6 +825,7 @@ final class ReadingTests: BrowserTestCase {
             + "<nav>Menu Home Shop</nav><article><h1>About Pizza</h1>\(body)</article><footer>Copyright</footer>"
     }()
 
+    // promise: #670
     /// The Summarize tile shrinks the page into its card and shows the summary with its credit;
     /// the close button brings the page back.
     func testSummarizeShowsTheSummaryAndClosesBackToThePage() {
@@ -647,10 +844,7 @@ final class ReadingTests: BrowserTestCase {
         // Copy and Share once it is written.
         XCTAssertTrue(app.buttons["summary-copy"].exists)
         app.buttons["summary-share"].tap()
-        XCTAssertTrue(app.otherElements["ActivityListView"].waitForExistence(timeout: 5) || app.navigationBars["UIActivityContentView"].waitForExistence(timeout: 2),
-                      "the share sheet opens")
-        app.swipeDown(velocity: .fast)
-        sleep(1)
+        closeShareSheet(openedFrom: app.buttons["summary-share"])
         keep("summary")
         app.buttons["summary-close"].tap()
         XCTAssertTrue(app.buttons["bar-menu"].waitForExistence(timeout: 5))
@@ -830,6 +1024,7 @@ final class SpacesTests: BrowserTestCase {
         waitForPage("Inbox")
     }
 
+    // promise: #670
     /// "Set up" on the share prompt opens the how-to sheet; closed, the Spaces are there and the
     /// prompt doesn't come back.
     func testTheSharePromptLeadsToTheHowTo() {
@@ -843,7 +1038,10 @@ final class SpacesTests: BrowserTestCase {
         setUp.tap()
         XCTAssertTrue(app.staticTexts["share-guide-title"].waitForExistence(timeout: 5))
         XCTAssertEqual(app.staticTexts["share-guide-title"].label, "Save to Cra from any app")
-        XCTAssertTrue(app.buttons["share-guide-show"].exists)
+        let share = app.buttons["share-guide-show"]
+        XCTAssertTrue(share.exists)
+        share.tap()
+        closeShareSheet(openedFrom: share)
         app.buttons["share-guide-close"].tap()
         XCTAssertTrue(app.buttons["space-tab-Inbox"].waitForExistence(timeout: 5))
         app.buttons["spaces-close"].tap()
@@ -1190,6 +1388,7 @@ final class EmptyHomeTests: BrowserTestCase {
         let logo = app.images["logo"]
         XCTAssertTrue(logo.waitForExistence(timeout: 5))
         XCTAssertTrue(app.buttons["bar-search"].exists)
+        XCTAssertFalse(app.staticTexts["Tap to search"].exists, "the dots are off until App Settings turns them on")
         XCTAssertEqual(logo.value as? String, "0.0 turns")
         // A flick across its right-hand side, downwards: clockwise.
         let from = logo.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.2))
@@ -1200,9 +1399,109 @@ final class EmptyHomeTests: BrowserTestCase {
         app.buttons["bar-search"].tap()
         XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5))
     }
+
+    /// App Settings ▸ Rippling Dots (PR #708, Victor 23 Nov 2026: a setting, with the logo kept) lays a field of dots
+    /// under the logo that sends a ring out wherever it is tapped, with "Tap to search" over the pill; the pill still
+    /// brings the sheet back.
+    func testRipplingDotsAreASettingUnderTheLogo() {
+        rippleDots(appearance: "light")
+    }
+
+    /// The same in dark mode: the near-black backdrop under the dots.
+    func testRipplingDotsInDarkMode() {
+        rippleDots(appearance: "dark")
+    }
+
+    private func rippleDots(appearance: String) {
+        // One page, so App Settings opens from its tab row; closing that last tab leaves the empty home screen.
+        launch(["-CraOpenURL", Self.page("First"), "-CraSearch", "NO", "-CraAppearance", appearance])
+        waitForPage("First")
+        app.buttons["bar-tabs"].tap()
+        app.buttons["bar-settings"].tap()
+        let toggle = app.switches["setting-home-dots"]
+        for _ in 0..<6 where !toggle.isHittable { app.swipeUp() }
+        XCTAssertTrue(toggle.isHittable)
+        XCTAssertEqual(toggle.value as? String, "0", "off by default")
+        toggle.switches.firstMatch.exists ? toggle.switches.firstMatch.tap() : toggle.tap()
+        XCTAssertEqual(toggle.value as? String, "1")
+        app.buttons["Done"].tap()
+        let card = app.buttons["tab-card-0"]
+        XCTAssertTrue(card.waitForExistence(timeout: 5))
+        sleep(1)
+        card.swipeUp(velocity: .fast)
+        // The last tab gone, the sheet comes up ready to type (as without the dots); put away, the home is left.
+        let field = app.textFields["search-field"]
+        XCTAssertTrue(field.waitForExistence(timeout: 5))
+        let start = field.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        start.press(forDuration: 0.05, thenDragTo: start.withOffset(CGVector(dx: 0, dy: 200)), withVelocity: .fast, thenHoldForDuration: 0)
+        XCTAssertTrue(app.staticTexts["Tap to search"].waitForExistence(timeout: 5))
+        let logo = app.images["logo"]
+        XCTAssertTrue(logo.waitForExistence(timeout: 5), "the logo stays over the dots")
+        let dots = app.otherElements["dot-field"]
+        XCTAssertTrue(dots.exists)
+        XCTAssertTrue(app.buttons["bar-search"].exists)
+        XCTAssertEqual(dots.value as? String, "0 rings")
+        dots.coordinate(withNormalizedOffset: CGVector(dx: 0.7, dy: 0.2)).tap()
+        dots.coordinate(withNormalizedOffset: CGVector(dx: 0.3, dy: 0.75)).press(forDuration: 0.5)
+        XCTAssertEqual(dots.value as? String, "2 rings")
+        keep("empty-home-dots-\(appearance)")
+        XCTAssertFalse(app.keyboards.firstMatch.exists, "tapping the dots doesn't open the search")
+        app.buttons["bar-search"].tap()
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5))
+    }
 }
 
 final class SiteMatchTests: BrowserTestCase {
+    // promise: #650
+    func testSyncedSpaceSitesShowTheirPlaceAndOpen() throws {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("cra-search-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        try Data(SpacesTests.macSidebar.utf8).write(to: folder.appendingPathComponent("sidebar.json"))
+        launch(["-CraOpenURL", Self.page("First"), "-CraSearch", "NO", "-CraSyncDir", folder.path])
+        waitForPage("First")
+        app.buttons["bar-search"].tap()
+        let field = app.textFields["search-field"]
+        field.typeText("docs")
+        let docs = app.descendants(matching: .any).matching(NSPredicate(format: "identifier MATCHES 'suggestion-[0-9]+'"))
+            .containing(.staticText, identifier: "Docs").firstMatch
+        XCTAssertTrue(docs.waitForExistence(timeout: 10))
+        XCTAssertTrue(docs.staticTexts["Pinned in Work"].exists)
+        app.buttons["search-clear"].tap()
+        field.typeText("story")
+        let story = app.descendants(matching: .any).matching(NSPredicate(format: "identifier MATCHES 'suggestion-[0-9]+'"))
+            .containing(.staticText, identifier: "Story").firstMatch
+        // The Mac's Today tabs come too, saying so (Victor, 20 Nov).
+        XCTAssertTrue(story.waitForExistence(timeout: 10))
+        XCTAssertTrue(story.staticTexts["Today in Work"].exists)
+        app.buttons["search-clear"].tap()
+        field.typeText("docs")
+        XCTAssertTrue(docs.waitForExistence(timeout: 5))
+        keep("space-site-match")
+        docs.tap()
+        app.buttons["bar-tabs"].tap()
+        XCTAssertTrue(app.buttons["tab-card-1"].waitForExistence(timeout: 10))
+        XCTAssertFalse(app.buttons["tab-card-2"].exists)
+        XCTAssertEqual(app.buttons["tab-card-1"].label, "docs.example")
+    }
+
+    // promise: #650
+    func testPhoneSiteWinsOverSyncedSpace() throws {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("cra-search-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        try Data(SpacesTests.macSidebar.utf8).write(to: folder.appendingPathComponent("sidebar.json"))
+        launch(["-CraOpenURL", "http://docs.example/", "-CraSearch", "NO", "-CraSyncDir", folder.path])
+        XCTAssertTrue(app.buttons["bar-search"].waitForExistence(timeout: 10))
+        app.buttons["bar-search"].tap()
+        app.textFields["search-field"].typeText("docs")
+        let list = app.scrollViews["suggestion-list"]
+        XCTAssertTrue(list.staticTexts["docs.example"].waitForExistence(timeout: 10))
+        XCTAssertEqual(list.staticTexts.matching(identifier: "docs.example").count, 1)
+        XCTAssertFalse(list.staticTexts["Docs"].exists)
+        XCTAssertFalse(list.staticTexts["Pinned in Work"].exists)
+    }
+
     /// A page the phone has open comes up as a row when its address is typed, above the typed
     /// text, and a tap on it opens it. The address never loads (`.invalid`), so no network.
     func testAnOpenPageIsOfferedWhenItsAddressIsTyped() {
@@ -1441,6 +1740,41 @@ final class WidgetGuideTests: BrowserTestCase {
 }
 
 final class AppIconDockTests: BrowserTestCase {
+    // promise: #686
+    func testChangeIconQuickActionOpensTallOnIPadAndHalfOnIPhone() {
+        launch(["-CraOpenURL", Self.page("First"), "-CraSearch", "NO", "-CraShortcut", "change-icon"])
+        let navigationBar = app.navigationBars["App Icon"]
+        XCTAssertTrue(navigationBar.waitForExistence(timeout: 5))
+        for icon in ["segments", "midnight", "mono", "violet"] {
+            XCTAssertTrue(app.buttons["icon-\(icon)"].exists, icon)
+        }
+        sleep(1)
+        keep("app-icon-picker-open")
+        if UIDevice.current.userInterfaceIdiom == .pad {
+            XCTAssertLessThan(navigationBar.frame.minY, app.frame.height / 3,
+                              "the App Icon picker opened as a short card on iPad")
+        } else {
+            XCTAssertGreaterThan(navigationBar.frame.minY, app.frame.height * 0.4,
+                                 "the App Icon picker did not open at medium height on iPhone")
+        }
+    }
+
+    /// On iPad the Change App Icon picker shows all four icons whole, at an iPhone's size: its grid
+    /// once stretched to the wide sheet, so the icons grew past 250 pt and the second row was cut off.
+    func testIconPickerFitsEveryIconOnIPad() throws {
+        try XCTSkipUnless(UIDevice.current.userInterfaceIdiom == .pad, "the iPhone opens the picker as a half sheet")
+        launch(["-CraOpenURL", Self.page("First"), "-CraSearch", "NO", "-CraShortcut", "change-icon"])
+        XCTAssertTrue(app.navigationBars["App Icon"].waitForExistence(timeout: 5))
+        sleep(1)
+        let sheet = app.scrollViews.firstMatch.frame
+        for icon in ["segments", "midnight", "mono", "violet"] {
+            let frame = app.buttons["icon-\(icon)"].frame
+            XCTAssertTrue(sheet.contains(frame), "\(icon) at \(frame) is cut off by the picker \(sheet)")
+            XCTAssertLessThanOrEqual(frame.width, 200, "\(icon) grew to the iPad sheet's width")
+        }
+        keep("app-icon-picker-ipad")
+    }
+
     /// App Settings ▸ Change App Icon opens Arc Search's dock sheet with every icon on its shelf,
     /// the current one marked.
     func testChangeAppIconShowsTheDock() {
@@ -1615,5 +1949,37 @@ final class AppleIntelligenceTests: BrowserTestCase {
         field.typeText("pizza ovens")
         XCTAssertTrue(app.staticTexts["pizza ovens"].firstMatch.waitForExistence(timeout: 5))
         XCTAssertFalse(app.buttons["browse-for-me"].exists)
+    }
+}
+
+final class RecentTabsTests: BrowserTestCase {
+    // promise: #591
+    func testRecentTabsShowUnderTheEmptyField() throws {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("cra-recent-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let sidebar = SpacesTests.macSidebar.replacingOccurrences(of: "2026-11-17T10:00:00Z", with: "2099-11-17T10:00:00Z")
+        try Data(sidebar.utf8).write(to: folder.appendingPathComponent("sidebar.json"))
+        launch(["-CraOpenURL", Self.page("First"), "-CraSearch", "NO", "-CraSyncDir", folder.path])
+        waitForPage("First")
+        app.buttons["bar-search"].tap()
+        app.textFields["search-field"].typeText(Self.page("Second") + "\n")
+        waitForPage("Second")
+        app.buttons["bar-search"].tap()
+        let firstRow = app.descendants(matching: .any)["suggestion-0"]
+        let secondRow = app.descendants(matching: .any)["suggestion-1"]
+        XCTAssertTrue(firstRow.staticTexts["Inbox"].waitForExistence(timeout: 10))
+        XCTAssertTrue(secondRow.staticTexts["First"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.scrollViews["suggestion-list"].staticTexts["Second"].exists)
+        keep("recent-tabs")
+        secondRow.tap()
+        waitForPage("First")
+        app.buttons["bar-search"].tap()
+        XCTAssertTrue(firstRow.staticTexts["Inbox"].waitForExistence(timeout: 10))
+        firstRow.tap()
+        waitForPage("Inbox")
+        app.buttons["bar-tabs"].tap()
+        XCTAssertTrue(app.buttons["tab-card-2"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.buttons["tab-card-3"].exists)
     }
 }

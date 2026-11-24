@@ -25,11 +25,20 @@ final class CommandBarController {
     /// Layout hints set by the window controller before opening.
     var panelWidth: CGFloat = CraMetrics.commandBarWidth
     var attached = false
+    /// Arc's address panel (#663): opened by a click on the sidebar's address, it hangs from that
+    /// field, sized to the address (CraCore SidebarAddressPanel), not centred in the window.
+    var compact = false
+    /// Arc's ⌘L on a page with the developer bar (#663 follow-up): the bar's address edited in place, the panel over the
+    /// bar and across the card (CraCore DeveloperBarPanel). nil for every other bar.
+    var developer: CommandBarDeveloperInput?
     /// The space whose palette colours the selected row and the info badge (CraCore CommandBarTones).
     var theme: SpaceTheme?
     var focusedSpaceID: UUID?
     /// The space "Switch to" leaves out when it isn't the focused one: a Little Window's (#316).
     var spaceShown: UUID?
+    /// The window the bar belongs to. A Little Window's lists open tabs and archived pages as pages
+    /// to load in it, not tabs to switch to in the browser window (CraCore LittleBarRows, #599).
+    var window: CommandBarOpening.Window = .browser
     var spaceName: (UUID) -> String = { _ in "" }
     /// Arc's scoped search: Tab on "youtube" scopes the bar to YouTube, on "%" to the space's open
     /// tabs, on the empty field to the browser's actions (a pill before the field) until Backspace
@@ -44,6 +53,7 @@ final class CommandBarController {
     private(set) var openedPrefill: String?
     /// Rows that open or change under a still pointer don't take the selection from the top row (#382).
     @PerceptionIgnored private var hoverGate = HoverGate()
+    @PerceptionIgnored private var searchEngineWatcher: DispatchSourceFileSystemObject?
 
     unowned let engine: SuggestionEngine
     unowned let store: SidebarStore
@@ -78,6 +88,10 @@ final class CommandBarController {
 
     func open(mode: CommandBarMode, prefill: String?) {
         engine.resetIndex()
+        // Its keys are built off the main thread while the bar comes up (#617).
+        engine.prepareIndex()
+        searchEngineWatcher?.cancel()
+        searchEngineWatcher = engine.watchSearchEngines { [weak self] in self?.relist() }
         self.mode = mode
         scope = nil
         openedPrefill = prefill
@@ -130,7 +144,7 @@ final class CommandBarController {
         previewText = nil
     }
 
-    /// The search engine answered: list again, keeping the selected row where it still is.
+    /// Search suggestions or engines changed: list again, keeping the selected row where it still is.
     private func relist() {
         guard scope == nil else { return }
         let selectedID = result.items.indices.contains(selectedIndex) ? result.items[selectedIndex].id : nil
@@ -332,15 +346,34 @@ final class CommandBarController {
     private func listed(_ r: SuggestionResult) -> SuggestionResult {
         hoverGate.listChanged(pointerAt: NSEvent.mouseLocation)
         var r = r
+        r.items = r.items.map(inWindow)
         let n = SearchSuggestionsNotice.rowsListed(r.items.count, maxRows: SuggestionEngine.maxRows, banner: showsNoticeBanner)
         if n < r.items.count { r.items.removeLast(r.items.count - n) }
         return r
+    }
+
+    /// An open tab's or an archived page's row as this window's bar lists it: in a Little Window, a
+    /// page to load there, listed like a history row (no "Switch to Tab" or "Restore").
+    private func inWindow(_ s: Suggestion) -> Suggestion {
+        let row: LittleBarRows.Row
+        switch s.kind {
+        case .switchToTab: row = .openTab
+        case .archived: row = .archivedPage
+        default: return s
+        }
+        var tabsScope = false
+        if case .tabs = scope { tabsScope = true }
+        guard LittleBarRows.action(for: row, in: window, tabsScope: tabsScope) == .loadInWindow, let url = s.url, !url.isEmpty else { return s }
+        return Suggestion(id: s.id, kind: .history, title: s.title, subtitle: SuggestionEngine.humanURL(url), url: url,
+                          faviconKey: s.faviconKey, symbol: s.symbol, trailing: nil, score: s.score, loose: s.loose)
     }
 
     func close() {
         guard isOpen else { return }
         isOpen = false
         scope = nil
+        searchEngineWatcher?.cancel()
+        searchEngineWatcher = nil
         engine.resetIndex()
         onClose()
     }

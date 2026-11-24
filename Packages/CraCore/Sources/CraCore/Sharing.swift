@@ -173,7 +173,7 @@ public struct UsageStats: Codable, Equatable, Sendable {
         "folderPreviews", "hapticFeedbackOnReorder", "httpsOnly", "instantLinks", "keepInMenuBar", "littleWindowArchiveAfter",
         "littleWindowOnOptionCommandClick", "notionCalendarPreviews", "outlookCalendarPreviews", "outlookMailPreviews", "littleWindowShortcutEverywhere", "liveCalendar", "mediaLibraryEnabled", "newTabButtonAtTop", "newTabsAtTop",
         "openLinksInForeground", "pageTopWindowDrag", "peekExpandInSourceTab", "peekInEveryTab", "peekLinksToOtherSites", "peekOnShiftClick",
-        "perfRecording", "recentPagesPreviews", "restoreWindows", "searchEngine", "searchSuggestions", "shareThemeWithWebsites",
+        "perfRecording", "recentPagesPreviews", "reopenClosedTabCurrentSpaceOnly", "restoreWindows", "searchEngine", "searchSuggestions", "shareThemeWithWebsites",
         "sharedFavorites", "showSpaceHeaderOnSingleSpace", "showStatusBar", "showToolbar", "soundEffects", "splitMiddleClickAddsPane", "splitMorePanes",
         "startOnNewTab", "tabSleepAfter", "tabSleepOnMemoryPressure", "tabSleepTimerEnabled", "tidyDownloads",
         "tidyTabTitles", "tidyTabs", "toolbarShowsFullURL", "warnBeforeQuitting", "websiteAppearance",
@@ -182,12 +182,12 @@ public struct UsageStats: Codable, Equatable, Sendable {
 
     /// Lists, folders, sites and one-time marks: never in a report. Sharing itself is always on
     /// when a report goes out. `autoHideToolbar`, `autoHideLittleWindowToolbar`, `autoHidePeekToolbar`,
-    /// `commandBarSiteColor` and `sidebarSide` are here because a feature Arc never had adds nothing to what a report says (CONTRIBUTING.md).
+    /// `commandBarSiteColor`, `sidebarSide`, `edgeToEdgeRoundedCorners`, `pageMargin` and `translucentSidebar` are here because a feature Arc never had adds nothing to what a report says (CONTRIBUTING.md).
     public static let unreportedSettings: Set<String> = [
         "developerHosts", "disabledDefaultDeveloperHosts", "autoPictureInPictureSites", "keepActiveSites", "linkRoutes", "mediaFolders", "mediaHidden",
-        "downloadLocations", "newDocumentApps", "hasSeenImportPrompt", "toolbarDefaultMigrated", "newTabButtonDefaultMigrated",
+        "downloadLocations", "newDocumentApps", "profileAutoArchive", "hasSeenImportPrompt", "toolbarDefaultMigrated", "newTabButtonDefaultMigrated",
         "autoArchiveDays", "shareUsageStats", "askedToShare", "autoHideToolbar", "autoHideLittleWindowToolbar", "autoHidePeekToolbar",
-        "commandBarSiteColor", "sidebarSide", "customBlocklists",
+        "commandBarSiteColor", "sidebarSide", "customBlocklists", "edgeToEdgeRoundedCorners", "pageMargin", "translucentSidebar",
     ]
 
     public static func changedSettings(_ settings: AppSettings) -> [String: String] {

@@ -77,6 +77,7 @@ enum TestRoot { case today }
     var profilePaths: [UUID: String] = [:]
     func profilePath(item: UUID) -> String? { profilePaths[item] }
     func profileDirectoryName(item: UUID) -> String { "Default" }
+    func profileID(item: UUID) -> UUID? { nil }
     func spaceID(ofItem: UUID) -> UUID? { nil }
     func splitContaining(_ id: UUID) -> TestItem? {
         guard let p = items[id]?.parentID, let parent = items[p], parent.isSplit else { return nil }
@@ -108,7 +109,7 @@ enum TestRoot { case today }
     func setFaviconKey(_ id: UUID, _ key: String) { items[id]?.tab?.faviconKey = key }
     /// The URLs a finished load counted as visits, in order.
     var visits: [String] = []
-    func recordVisit(url: String, title: String) { visits.append(url) }
+    func recordVisit(url: String, title: String, profile: UUID?) { visits.append(url) }
     func clearHistory(_ range: BrowsingDataClear.Range) {}
     /// The tabs selected, in order (Picture in Picture's Back to Tab selects; Minimize doesn't).
     private(set) var selections: [UUID] = []
@@ -139,6 +140,8 @@ enum BrowsingDataClear {
 }
 enum TabSwitcherMetrics { static let thumbnail = NSSize(width: 320, height: 200) }
 enum HitchMonitor { static func mark(_ event: String) {} }
+/// A committed page lets its own redirect to another app ask once again (#560); no sheets here.
+@MainActor enum AppLinkPrompt { static func pageLoaded(_ browser: CraBrowser) {} }
 enum EmbeddedPages {
     static var viewsByHost: [ObjectIdentifier: [NSView]] = [:]
     static func isHost(_ window: NSWindow) -> Bool { viewsByHost[ObjectIdentifier(window)] != nil }
@@ -181,9 +184,26 @@ final class WebKitBrowser: CraBrowser {
     var isContentFullscreen = false
     var serviceName = ""
     var savedInteractionState: Data?
+    /// Where a page that moved here for a protected video seeks to (the real page's user script).
+    var resume: (url: String, seconds: Double)?
     convenience init(frame: NSRect, url: String?, delegate: CraBrowserDelegate?, incognito: Bool, profilePath: String?,
-                     interactionState: Data?) {
+                     interactionState: Data?, resume: (url: String, seconds: Double)? = nil) {
         self.init(frame: frame, url: url, delegate: delegate, incognito: incognito, profilePath: profilePath)
         savedInteractionState = interactionState
+        self.resume = resume
     }
+}
+/// WebKit's stores (Sources/Cra/Services/WebKit/WebKitStores.swift): here only what was copied in.
+@MainActor
+enum WebKitStores {
+    static var added: [(cookies: [HTTPCookie], profilePath: String?, incognito: Bool)] = []
+    static func add(_ cookies: [HTTPCookie], profilePath: String?, incognito isIncognito: Bool, done: @escaping @MainActor () -> Void) {
+        added.append((cookies, profilePath, isIncognito))
+        done()
+    }
+}
+
+/// The engine Cra runs on (Sources/Cra/App/EngineFramework.swift): the Chromium engine here.
+enum EngineFramework {
+    static let isChromiumEngine = true
 }

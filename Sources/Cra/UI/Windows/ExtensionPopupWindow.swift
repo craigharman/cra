@@ -14,9 +14,16 @@ final class ExtensionPopupWindow: NSWindow {
     /// Chrome's bubble draws a transparent margin around the page.
     static let bubbleInset: CGFloat = 7
     static let titleBarHeight: CGFloat = 28
-    /// Where the user dragged a popup to, relative to its anchor. (Cra ≤ 0.1.17 kept an
-    /// absolute screen point under "extensionPopupWindowTopLeft"; that one is dropped.)
+    /// Where the user dragged a popup to, relative to its anchor, kept across updates. (Cra ≤ 0.1.17 kept an
+    /// absolute screen point under "extensionPopupWindowTopLeft"; that one is dropped. 0.1.52 kept it under
+    /// "extensionPopupWindowDragOffset" and dropped older ones; that key is moved back.)
     private static let savedOffsetKey = "extensionPopupWindowOffset"
+    private static let interimKey = "extensionPopupWindowDragOffset"
+    /// A test instance (CRA_DATA_DIR) keeps it in a file in its own data folder, as Picture in Picture's
+    /// placement: test copies share the app's defaults, so a run read the place the user dragged popups to
+    /// (and a test's drag moved the user's popups).
+    private static let testFile = ProcessInfo.processInfo.environment["CRA_DATA_DIR"]
+        .map { URL(fileURLWithPath: $0).appendingPathComponent("extension-popup-offset.txt") }
 
     private static var current: ExtensionPopupWindow?
     /// When the mouse-down that closed the last popup happened (event time), if one did.
@@ -27,8 +34,12 @@ final class ExtensionPopupWindow: NSWindow {
     private var anchor = NSPoint.zero
     /// Where the user dragged the frame, from hanging right under the anchor.
     private var offset = NSPoint.zero
-    /// The frame's top-left when a title-bar drag began.
+    /// The frame's top-left when a title-bar drag began, and the pointer then.
     private var dragStart = NSPoint.zero
+    private var dragPointer = NSPoint.zero
+    /// The pointer (screen) and whether the left button is down, as the hardware has them; a test stands in.
+    static var pointer: () -> NSPoint = { NSEvent.mouseLocation }
+    static var leftButtonDown: () -> Bool = { NSEvent.pressedMouseButtons & 1 != 0 }
     private var observers: [NSObjectProtocol] = []
     private var clickMonitor: Any?
     private var placing = false
@@ -67,7 +78,12 @@ final class ExtensionPopupWindow: NSWindow {
         let w = ExtensionPopupWindow()
         w.bubble = bubble
         w.anchor = anchor
-        UserDefaults.standard.removeObject(forKey: "extensionPopupWindowTopLeft")
+        let defaults = UserDefaults.standard
+        defaults.removeObject(forKey: "extensionPopupWindowTopLeft")
+        if let interim = defaults.string(forKey: interimKey) {
+            if defaults.string(forKey: savedOffsetKey) == nil { defaults.set(interim, forKey: savedOffsetKey) }
+            defaults.removeObject(forKey: interimKey)
+        }
         w.offset = savedOffset ?? .zero
         w.appearance = bubble.parent?.effectiveAppearance ?? NSApp.effectiveAppearance
         w.backgroundColor = .windowBackgroundColor
@@ -101,7 +117,9 @@ final class ExtensionPopupWindow: NSWindow {
         w.observers.append(NotificationCenter.default.addObserver(forName: NSWindow.didBecomeKeyNotification, object: nil, queue: .main) { [weak w] note in
             MainActor.assumeIsolated {
                 // The click that opened the popup can still be making its window key.
+                // The popup's own DevTools (Inspect in its menu) leave it open, as in Chrome (#701).
                 guard let w, let bubble = w.bubble, let key = note.object as? NSWindow, key !== bubble, key.parent !== bubble,
+                      !ExtensionPopupFocus.isDevTools(title: key.title),
                       Date().timeIntervalSince(shownAt) > 0.3 else { return }
                 w.dismiss(closingBubble: true)
             }
@@ -114,9 +132,12 @@ final class ExtensionPopupWindow: NSWindow {
         }
         w.observers.append(NotificationCenter.default.addObserver(forName: NSWindow.willMoveNotification, object: w, queue: .main) { [weak w] _ in
             MainActor.assumeIsolated {
-                guard let w else { return }
+                // Only the user's drag of this frame's title bar (AppKit says willMove on its first
+                // leftMouseDragged) starts one: not a move of the frame for any other reason (#634).
+                guard let w, w.isUserGesture(NSApp.currentEvent, [.leftMouseDown, .leftMouseDragged]) else { return }
                 w.dragging = true
                 w.dragStart = NSPoint(x: w.frame.minX, y: w.frame.maxY)
+                w.dragPointer = Self.pointer()
             }
         })
         w.observers.append(NotificationCenter.default.addObserver(forName: NSWindow.didMoveNotification, object: w, queue: .main) { [weak w] _ in
@@ -131,7 +152,10 @@ final class ExtensionPopupWindow: NSWindow {
         // While the title bar is dragged AppKit carries the bubble along; afterwards the
         // frame stays where it was dropped.
         if dragging {
-            if NSEvent.pressedMouseButtons != 0 { return }
+            // Through the drop too: the frame's own didMove comes on the leftMouseUp, maybe after the bubble's.
+            if Self.leftButtonDown() || isUserGesture(NSApp.currentEvent, [.leftMouseDragged, .leftMouseUp]) { return }
+            // The button is up: where the pointer took the frame is where the user dropped it (#664).
+            if followsPointer() { keepDrop() }
             dragging = false
         }
         placing = true
@@ -141,7 +165,12 @@ final class ExtensionPopupWindow: NSWindow {
         // macOS 26 (32 pt). With 28 Chrome's window, which takes clicks in its transparent
         // margin too, covered the bottom of the close button.
         let titleHeight = max(Self.titleBarHeight, frame.height - contentLayoutRect.maxY)
-        let size = NSSize(width: bubble.frame.width - 2 * inset, height: bubble.frame.height - 2 * inset + titleHeight)
+        // Where the page is in Chrome's bubble, measured (the engine's margin isn't CEF's 7 pt all round),
+        // and the frame around it: the page 1 pt inside the frame's sides and bottom, so the window's
+        // border shows, and its bottom corners rounded as the frame's are (#701).
+        let page = pageRectInBubble ?? NSRect(x: inset, y: inset, width: bubble.frame.width - 2 * inset, height: bubble.frame.height - 2 * inset)
+        let border = ExtensionPopupFrame.border
+        let size = NSSize(width: page.width + 2 * border, height: page.height + border + titleHeight)
         // Right edge on the anchor whatever width the page reports (Bitwarden grows after it loads).
         var topLeft = NSPoint(x: anchor.x - size.width + offset.x, y: anchor.y + offset.y)
         if let screen = (Self.screen(at: anchor) ?? bubble.screen ?? NSScreen.main)?.visibleFrame {
@@ -150,17 +179,89 @@ final class ExtensionPopupWindow: NSWindow {
         }
         let frame = NSRect(x: topLeft.x, y: topLeft.y - size.height, width: size.width, height: size.height)
         if self.frame != frame { setFrame(frame, display: true) }
-        let origin = NSPoint(x: frame.minX - inset, y: frame.minY - inset)
+        let origin = NSPoint(x: frame.minX + border - page.minX, y: frame.minY + border - page.minY)
         if bubble.frame.origin != origin { bubble.setFrameOrigin(origin) }
+        roundPageCorners()
+    }
+
+    /// The popup page's view (Chromium's RenderWidgetHostViewCocoa) in Chrome's bubble.
+    private var pageView: NSView? {
+        guard let root = bubble?.contentView else { return nil }
+        func find(_ v: NSView) -> NSView? {
+            if NSStringFromClass(type(of: v)) == "RenderWidgetHostViewCocoa" { return v }
+            return v.subviews.lazy.compactMap(find).first
+        }
+        return find(root)
+    }
+
+    /// The page's rect in the bubble window, nil until Chrome has made its view.
+    private var pageRectInBubble: NSRect? {
+        guard let page = pageView, page.bounds.width > 0, page.bounds.height > 0 else { return nil }
+        return page.convert(page.bounds, to: nil)
+    }
+
+    /// The page's bottom corners follow the frame's, which macOS rounds (16 pt on macOS 26): Chrome's
+    /// square page covered them (#701).
+    private func roundPageCorners() {
+        guard let page = pageView else { return }
+        page.wantsLayer = true
+        guard let layer = page.layer else { return }
+        let radius = ExtensionPopupFrame.pageCornerRadius(windowRadius: windowCornerRadius)
+        if layer.cornerRadius != radius { layer.cornerRadius = radius }
+        // A layer's minY is the view's bottom (AppKit's layers aren't flipped for an unflipped view).
+        let bottom: CACornerMask = page.isFlipped ? [.layerMinXMaxYCorner, .layerMaxXMaxYCorner] : [.layerMinXMinYCorner, .layerMaxXMinYCorner]
+        if layer.maskedCorners != bottom { layer.maskedCorners = bottom }
+        if !layer.masksToBounds { layer.masksToBounds = true }
+        layer.cornerCurve = .continuous
+    }
+
+    /// The radius macOS gives this titled window's corners; macOS 26's 16 pt if it doesn't say.
+    private var windowCornerRadius: CGFloat {
+        let key = "_cornerRadius"
+        guard responds(to: NSSelectorFromString(key)), let r = value(forKey: key) as? CGFloat, r > 0 else { return 16 }
+        return r
     }
 
     private func userMoved() {
         guard dragging, !placing, bubble != nil else { return }
+        // A title-bar drag ends in one didMove, on its leftMouseUp. Until 0.1.51 `dragging` stayed set
+        // until the next layout, and a move after that (the window carrying the frame along, into full
+        // screen or across a display) became the offset every later popup hung by, away from its
+        // button (#634). Only a move inside the gesture counts, and the gesture ends with the button.
+        // A drag with a real mouse or trackpad runs in the window server: AppKit's current event stays the
+        // leftMouseDown, so 0.1.52 took every one for a carried move and snapped the popup back (#664).
+        // The frame went with the pointer, then, and a carried move doesn't move the pointer.
+        let event = NSApp.currentEvent
+        let gesture = isUserGesture(event, [.leftMouseDragged, .leftMouseUp])
+        let held = Self.leftButtonDown()
+        guard gesture || followsPointer() else {
+            if !held { dragging = false }
+            return
+        }
+        if event?.type == .leftMouseUp || (!gesture && !held) { dragging = false }
+        keepDrop()
+    }
+
+    /// The frame moved by as much as the pointer since the drag began.
+    private func followsPointer() -> Bool {
+        let p = Self.pointer()
+        let frameMove = NSPoint(x: frame.minX - dragStart.x, y: frame.maxY - dragStart.y)
+        return hypot(frameMove.x - (p.x - dragPointer.x), frameMove.y - (p.y - dragPointer.y)) < 3
+    }
+
+    /// Where the frame is now becomes where popups hang, unless it barely moved.
+    private func keepDrop() {
         let moved = NSPoint(x: frame.minX, y: frame.maxY)
         // A click on the title bar that barely moved it is not a new place.
         guard hypot(moved.x - dragStart.x, moved.y - dragStart.y) > 4 else { return }
         offset = NSPoint(x: moved.x - (anchor.x - frame.width), y: moved.y - anchor.y)
         Self.savedOffset = offset
+    }
+
+    /// `event` is the user's, on this frame, of one of `types`, and current (not the last one AppKit kept).
+    private func isUserGesture(_ event: NSEvent?, _ types: Set<NSEvent.EventType>) -> Bool {
+        guard let event, types.contains(event.type), event.window === self else { return false }
+        return ProcessInfo.processInfo.systemUptime - event.timestamp < 1
     }
 
     /// Top-left of a popup window `width` wide: hanging from `anchor` (top-right), moved by
@@ -180,10 +281,14 @@ final class ExtensionPopupWindow: NSWindow {
 
     private static var savedOffset: NSPoint? {
         get {
-            guard let s = UserDefaults.standard.string(forKey: savedOffsetKey) else { return nil }
-            return NSPointFromString(s)
+            let s = testFile.map { try? String(contentsOf: $0, encoding: .utf8) } ?? UserDefaults.standard.string(forKey: savedOffsetKey)
+            return s.map(NSPointFromString)
         }
-        set { UserDefaults.standard.set(newValue.map(NSStringFromPoint), forKey: savedOffsetKey) }
+        set {
+            let s = newValue.map(NSStringFromPoint)
+            guard let testFile else { return UserDefaults.standard.set(s, forKey: savedOffsetKey) }
+            if let s { try? s.write(to: testFile, atomically: true, encoding: .utf8) } else { try? FileManager.default.removeItem(at: testFile) }
+        }
     }
 
     override func performClose(_ sender: Any?) { dismiss(closingBubble: true) }
@@ -199,13 +304,34 @@ final class ExtensionPopupWindow: NSWindow {
     /// A press in one of Cra's windows other than this popup (its frame, Chrome's bubble or a window the
     /// bubble opened): it closes the popup, as a click that takes the popup's focus does.
     private func mouseDown(elsewhere event: NSEvent) {
-        guard let bubble, let target = event.window, target !== self, target !== bubble, target.parent !== bubble else { return }
+        guard let bubble, let target = event.window, target !== self, target !== bubble, target.parent !== bubble,
+              !ExtensionPopupFocus.isDevTools(title: target.title) else { return }
         if event.type == .leftMouseDown { Self.closingClick = event.timestamp }
         dismiss(closingBubble: true)
     }
 
     /// The point (screen) the popup on screen hangs from, nil while none is.
     static var shownAnchor: NSPoint? { current.map { $0.anchor } }
+    /// The frame (screen) of the popup on screen, nil while none is.
+    static var shownFrame: NSRect? { current?.frame }
+
+    /// The popup page's own view (Chromium's RenderWidgetHostViewCocoa) in the bubble, screen rect.
+    var pageFrameOnScreen: NSRect? {
+        guard let bubble, let rect = pageRectInBubble else { return nil }
+        return bubble.convertToScreen(rect)
+    }
+
+    /// Scenarios (#701): where the page sits against the frame, in points: its left, right and bottom
+    /// edges from the frame's (positive: inside it), the title bar's height and the bubble's margin.
+    static var debugGeometry: String {
+        guard let w = current, let bubble = w.bubble else { return "closed" }
+        guard let page = w.pageFrameOnScreen else { return "no page" }
+        let f = w.frame
+        return "left=\(Int((page.minX - f.minX).rounded())) right=\(Int((f.maxX - page.maxX).rounded())) "
+            + "bottom=\(Int((page.minY - f.minY).rounded())) top=\(Int((f.maxY - page.maxY).rounded())) "
+            + "margin=\(Int((page.minX - bubble.frame.minX).rounded())) page=\(Int(page.width))x\(Int(page.height)) "
+            + "corners=\(w.pageView?.layer.map { "\(Int($0.cornerRadius))" + ($0.masksToBounds ? "" : "-unmasked") } ?? "-")"
+    }
 
     private func dismiss(closingBubble: Bool) {
         if let e = NSApp.currentEvent, e.type == .leftMouseDown { Self.closingClick = e.timestamp }

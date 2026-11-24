@@ -29,7 +29,7 @@ struct SyncSection: View {
             } message: {
                 if let (_, s) = importing { Text(Self.describe(s) + " Importing replaces this Mac’s sidebar, settings and shortcuts.") }
             }
-    }
+        }
     }
 
     @ViewBuilder private var content: some View {
@@ -86,7 +86,7 @@ struct SyncSection: View {
             }
         }
         SettingsFootnote(notice ?? "Spaces, pinned tabs, favorites, folders, settings and shortcuts sync. Logins, cookies, history and extensions stay on each Mac.")
-    }
+        }
     }
 
     static let appleAccountSettings = URL(string: "x-apple.systempreferences:com.apple.systempreferences.AppleIDSettings")!

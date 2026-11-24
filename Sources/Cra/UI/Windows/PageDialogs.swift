@@ -5,9 +5,10 @@ import CraCEF
 /// user would find it. Those are the dialogs and bubbles Chromium hangs on a profile's (never seen)
 /// Browser window: alert, confirm, prompt, "Leave site?", the HTTP sign-in prompt, the screen-share
 /// picker, a device chooser, "Save password?". A page's popups (a date picker) and the colour panel
-/// (`<input type=color>`) count too, and the AppKit alerts Chrome shows for "Leave site?". Each line gives its size, where it sits (CraCore
+/// (`<input type=color>`) count too, and the AppKit alerts Chrome shows for "Leave site?", and macOS's share
+/// picker (`navigator.share`). Each line gives its size, where it sits (CraCore
 /// PageDialogPlacement: on the page, the window, a sliver or off), whether it is in front there among
-/// Cra's windows, and what it says: its text, buttons and fields, read through accessibility.
+/// Cra's windows, and what it says: its text, buttons and fields, read through accessibility, and its title.
 /// `press=<title>` presses that button and `fill=<a,b>` types into its fields in order, both the way
 /// VoiceOver does, so no pointer or key goes anywhere.
 @MainActor
@@ -22,6 +23,8 @@ enum PageDialogs {
             if w is NSColorPanel { return true }
             // Chrome's app-modal dialogs ("Leave site?", "Reload site?") are AppKit alerts of their own.
             if cls == "_NSAlertPanel" { return true }
+            // macOS's share picker (navigator.share), a popover from the page's view.
+            if cls == "_NSPopoverWindow" { return true }
             return cls == ChromiumDialog.windowClass && w.parent.map { CraCEFRuntime.isPageWindow($0) } == true
         }
     }
@@ -46,16 +49,20 @@ enum PageDialogs {
 
     private static func line(_ label: String, _ w: NSWindow, page: CGRect?, window: CGRect) -> String {
         let cls = NSStringFromClass(type(of: w))
-        let kind = w is NSColorPanel ? "colors" : cls == "RenderWidgetPopupWindow" ? "popup" : cls == "_NSAlertPanel" ? "alert" : "chrome"
+        let kind = w is NSColorPanel ? "colors" : cls == "RenderWidgetPopupWindow" ? "popup" : cls == "_NSAlertPanel" ? "alert"
+            : cls == "_NSPopoverWindow" ? "popover" : "chrome"
         let at = PageDialogPlacement.of(w.frame, page: page, window: window)
         let all = elements(in: w.contentView)
         let text = all.filter { $0.accessibilityRole() == .staticText }
             .compactMap { ($0.accessibilityValue() as? String) ?? $0.accessibilityLabel() }
             .map { $0.split(whereSeparator: \.isNewline).joined(separator: " ") }.filter { !$0.isEmpty }
-        let buttons = all.filter { $0.accessibilityRole() == .button }.compactMap { $0.accessibilityTitle() ?? $0.accessibilityLabel() }.filter { !$0.isEmpty }
+        let buttons = all.filter { $0.accessibilityRole() == .button }.compactMap { $0.accessibilityTitle() ?? $0.accessibilityLabel() }
+            .map { $0.split(whereSeparator: \.isNewline).joined(separator: " ") }.filter { !$0.isEmpty }
         let fields = all.filter { $0.accessibilityRole() == .textField }.count
         return "page dialog \(label): \(kind) \(Int(w.frame.width))x\(Int(w.frame.height)) at=\(at.rawValue) front=\(inFront(w) ? 1 : 0)"
             + " text=\(text.joined(separator: "|")) buttons=\(buttons.joined(separator: "|")) fields=\(fields)"
+            // The window's own title: a Chrome bubble's heading ("Cast <site>") sits in its frame, outside the content.
+            + " title=\(w.title)"
     }
 
     /// Whether it is the first of Cra's windows at its centre that shows and takes clicks.
