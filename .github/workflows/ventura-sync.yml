@@ -16,8 +16,10 @@ name: Ventura sync
 #                              newer Chrome stable is out (building the engine is upstream's job).
 #   ventura-support as the default branch: schedules only run there.
 #
-# After the merge, scripts/ventura-perceptify.py gives upstream's new views the port's
-# Perception rules (a second commit). The test job then lints, tests, builds the Intel app and
+# scripts/ventura-merge.py merges, and resolves a conflict on a line the fork changed only by
+# its rules: it merges that file again over upstream's two sides with the rules applied. Only
+# lines the fork changed by hand still stop the run. Then scripts/ventura-perceptify.py gives
+# upstream's new views the port's Perception rules (a second commit). The test job then lints, tests, builds the Intel app and
 # checks it targets macOS 13.
 #
 # Upstream code runs only in the test job, which has no secrets. The publish job runs on a
@@ -105,16 +107,20 @@ jobs:
           git fetch --no-tags "$UPSTREAM" "$TAGS"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          if ! git merge -X ignore-space-change --no-edit -m "Merge upstream $TAG" "$UPSTREAM_SHA"; then
+          # The fork's copies from before the merge, never ones that came with upstream's code.
+          git show "$BASE:scripts/ventura-perceptify.py" > "$RUNNER_TEMP/perceptify.py"
+          git show "$BASE:scripts/ventura-merge.py" > "$RUNNER_TEMP/merge.py"
+          # Conflicts the Ventura rules explain resolve themselves; the rest stop here.
+          if ! python3 -I "$RUNNER_TEMP/merge.py" "$UPSTREAM_SHA" "Merge upstream $TAG" "$RUNNER_TEMP/perceptify.py" > "$RUNNER_TEMP/merge.log"; then
             {
               echo "### $TAG doesn't merge cleanly"
-              echo "Conflicts:"
-              git diff --name-only --diff-filter=U | sed 's/^/- /'
+              sed -n '/^Still conflicted/,$p' "$RUNNER_TEMP/merge.log"
               echo
-              echo "Fix locally: \`git fetch upstream --tags && git merge -X ignore-space-change $TAG\`, resolve, push ventura-support, re-run this workflow."
+              echo "Fix locally: \`git fetch upstream --tags && python3 scripts/ventura-merge.py $TAG 'Merge upstream $TAG' scripts/ventura-perceptify.py\`, resolve what's left, push ventura-support, re-run this workflow."
             } | tee -a "$GITHUB_STEP_SUMMARY"
             exit 1
           fi
+          grep '^resolved' "$RUNNER_TEMP/merge.log" | tee -a "$GITHUB_STEP_SUMMARY" || true
 
       # The fork's copy from before the merge, never one that came with upstream's code.
       - name: Ventura rules for upstream's new views
@@ -164,7 +170,8 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git show "$BASE:scripts/ventura-perceptify.py" > "$RUNNER_TEMP/perceptify.py"
-          git merge -X ignore-space-change --no-edit -m "Merge upstream $TAG" "$UPSTREAM_SHA"
+          git show "$BASE:scripts/ventura-merge.py" > "$RUNNER_TEMP/merge.py"
+          python3 -I "$RUNNER_TEMP/merge.py" "$UPSTREAM_SHA" "Merge upstream $TAG" "$RUNNER_TEMP/perceptify.py"
           python3 -I "$RUNNER_TEMP/perceptify.py"
           git diff --quiet || git commit -qam "Ventura: Perception rules for $TAG's new views"
           git push origin HEAD:ventura-support

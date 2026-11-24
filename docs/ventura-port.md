@@ -86,12 +86,18 @@ tests, builds the Intel app and checks it with `scripts/verify-ventura-bundle.py
 that passes it pushes, and tags the same version here, which starts `release.yml`. A conflict
 or a failure pushes nothing; the run's summary says what to fix.
 
+`scripts/ventura-merge.py` does the merge. A conflict on lines the fork changed only through the
+rules (most of them) resolves itself: the file is merged again with the rules applied to both of
+upstream's sides, so only the fork's hand edits can still clash. Those stop the run, listed in
+its summary; run the same script locally, resolve what's left, push and re-run.
+
 Rules that keep that merge clean:
 
 - Lines inside `WithPerceptionTracking { }` keep upstream's indentation. Re-indenting them
   would make every upstream edit to those views a conflict.
 - A new Ventura rule goes in `scripts/ventura-perceptify.py`, not in a hand edit, so the next
-  release gets it too. `scripts/ventura-perceptify.py --check` lists files it would change.
+  release gets it too, and the merge can resolve upstream's edits to those lines. Sonoma-only
+  calls get a stand-in in `Sources/Cra/UI/VenturaCompat.swift` and a rule that swaps them. `scripts/ventura-perceptify.py --check` lists files it would change.
 - Every release here is its own Stable (`CRA_STABLE_VERSION` in release.yml), so its feeds hold
   only itself, with no `minimumUpdateVersion`. Upstream's channels would offer a Ventura copy
   upstream's Stable build (macOS 14, upstream's key) and hold its newest back from CEF builds.
