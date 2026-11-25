@@ -125,7 +125,7 @@ fi
 # one after them (CRA_SCENARIO_SCREEN=1). build/scenarios/web-features.txt says how it went, with the engine.
 if [ "${1:-}" = "web-features" ]; then
   names=$(python3 -I scripts/web-features.py --scenarios) || exit 2
-  # Fork: CRA_SKIP_SCENARIOS="a b" leaves those out (release.yml names the ones GitHub's runners can't run).
+  # Fork: CRA_SKIP_SCENARIOS="a b" leaves those out, here and in snapshots (release.yml says why).
   for n in ${CRA_SKIP_SCENARIOS:-}; do names=$(printf '%s\n' $names | grep -vx "$n"); echo "web features: $n left out (CRA_SKIP_SCENARIOS)"; done
   mkdir -p build/scenarios
   REPORT=build/scenarios/web-features.txt
@@ -185,6 +185,8 @@ if [ "${1:-}" = "snapshots" ]; then
   one() { CRA_TEST_SCREEN="$SCREEN" CRA_SNAPSHOTS=strict CRA_BUDGETS=report "$0" "$1" > "build/scenarios/$1.out" 2>&1; }
   for f in $(grep -l '^snapshot ' Tests/Scenarios/*.scenario); do
     n="$(basename "$f" .scenario)"
+    # Fork: CRA_SKIP_SCENARIOS leaves these out too (release.yml says why).
+    if [[ " ${CRA_SKIP_SCENARIOS:-} " == *" $n "* ]]; then echo "snapshots: $n left out (CRA_SKIP_SCENARIOS)"; continue; fi
     if one "$n"; then passed+=("$n")
     else
       cp "build/scenarios/$n.out" "build/scenarios/$n.first.out"

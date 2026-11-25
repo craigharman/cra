@@ -143,7 +143,10 @@ jobs:
           # still stops the release.
           #   devtools-link-hover, pip-document-window, recording-dot, page-pre-frame-canvas: fail every run
           #   page-dialogs: an alert in a Little Window, passes on some runs and fails on others
-          CRA_SKIP_SCENARIOS: devtools-link-hover pip-document-window recording-dot page-pre-frame-canvas page-dialogs
+          # And one of the snapshots: tab-switcher-split's reference was saved with the Mac in dark mode,
+          # and the switcher follows the Mac's appearance, so it differs by 44% on any Mac in light mode
+          # (GitHub's runners included). The fork doesn't change how it draws.
+          CRA_SKIP_SCENARIOS: devtools-link-hover pip-document-window recording-dot page-pre-frame-canvas page-dialogs tab-switcher-split
         run: scripts/release.sh
 
       # Fork: fail the release if any Intel binary needs a macOS newer than 13.
