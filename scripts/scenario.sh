@@ -125,6 +125,8 @@ fi
 # one after them (CRA_SCENARIO_SCREEN=1). build/scenarios/web-features.txt says how it went, with the engine.
 if [ "${1:-}" = "web-features" ]; then
   names=$(python3 -I scripts/web-features.py --scenarios) || exit 2
+  # Fork: CRA_SKIP_SCENARIOS="a b" leaves those out (release.yml names the ones GitHub's runners can't run).
+  for n in ${CRA_SKIP_SCENARIOS:-}; do names=$(printf '%s\n' $names | grep -vx "$n"); echo "web features: $n left out (CRA_SKIP_SCENARIOS)"; done
   mkdir -p build/scenarios
   REPORT=build/scenarios/web-features.txt
   RESULTS="$(mktemp /tmp/cra-web-features.XXXXXX)"
